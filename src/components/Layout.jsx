@@ -8,7 +8,8 @@ export default function Layout() {
   const { profile, role } = useAuth();
   const links = [
     { to: '/', label: 'Collections', end: true },
-    ...(role === 'sales' || role === 'finance' ? [{ to: '/new', label: 'New collection' }] : []),
+    ...(role === 'sales' || role === 'finance'
+      ? [{ to: '/new', label: 'New collection' }, { to: '/customers', label: 'Customer data' }] : []),
     ...(role === 'finance' ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
     { to: '/account', label: 'Account' },
   ];

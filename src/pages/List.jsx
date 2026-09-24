@@ -51,7 +51,7 @@ export default function List() {
   const term = q.trim().toLowerCase();
   const shown = term
     ? groups.all.filter((c) =>
-        [c.customer_name, c.invoice_refs, ref(c.id), c.location_text].some((v) => v?.toLowerCase().includes(term)))
+        [c.customer_name, c.customer_no, c.invoice_refs, ref(c.id), c.location_text].some((v) => v?.toLowerCase().includes(term)))
     : current.list;
 
   const photosDue = role === 'finance' ? groups.done.filter((c) =>
@@ -79,7 +79,7 @@ export default function List() {
             </button>
           ))}
         </div>
-        <input className="search" type="search" placeholder="Search customer, invoice or CC number"
+        <input className="search" type="search" placeholder="Search customer, code, invoice or CC number"
           value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search collections" />
       </div>
 
@@ -102,6 +102,7 @@ export default function List() {
                 <span className="row-customer">{c.customer_name}</span>
                 <span className="row-meta">
                   <span>{ref(c.id)}</span>
+                  {c.customer_no && <span>{c.customer_no}</span>}
                   {c.invoice_refs && <span>Inv. {c.invoice_refs}</span>}
                 </span>
                 <span className="row-next">

@@ -43,7 +43,7 @@ export default function Photos() {
       const zip = new JSZip();
       const used = new Set();
       const unique = (p) => { let n = p, i = 2; while (used.has(n)) n = p.replace(/\.jpg$/, `_${i++}.jpg`); used.add(n); return n; };
-      const lines = [['CC number', 'Customer', 'Invoice(s)', 'Status', 'Expected LKR', 'Cheque no', 'Bank', 'Cheque date',
+      const lines = [['CC number', 'Customer no', 'Customer', 'Invoice(s)', 'Status', 'Expected LKR', 'Cheque no', 'Bank', 'Cheque date',
         'Cheque LKR', 'Driver', 'Collected on', 'Deposit date', 'Deposit ref', 'Closed/cancelled on', 'File'].join(',')];
       const total = fileCount(chosen);
       let done = 0, missing = 0;
@@ -58,7 +58,7 @@ export default function Photos() {
 
       for (const c of chosen) {
         const folder = `${(endDate(c) ?? '').slice(0, 7)}/${safe(c.customer_name)}`;
-        const base = [ref(c.id), c.customer_name, c.invoice_refs, c.status, c.expected_amount];
+        const base = [ref(c.id), c.customer_no, c.customer_name, c.invoice_refs, c.status, c.expected_amount];
         for (const q of c.cheques) {
           const file = await add(q.photo_path, unique(`${folder}/${ref(c.id)}_chq-${safe(q.cheque_no)}_LKR-${q.amount}.jpg`));
           lines.push([...base, q.cheque_no, q.bank, q.cheque_date, q.amount, personName(c.driver),

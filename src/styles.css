@@ -312,3 +312,49 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
 .login-card h1 { font-size: 1.5rem; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* ---------- Customer picker ---------- */
+.combo { position: relative; }
+.combo-list {
+  position: absolute; z-index: 1100; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 320px; overflow-y: auto; margin: 0; padding: 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius);
+  box-shadow: 0 12px 28px rgba(21, 36, 58, 0.16);
+}
+.combo-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.6rem 0.8rem; cursor: pointer; }
+.combo-list li + li { border-top: 1px solid #E4EAE5; }
+.combo-list li.hi { background: #EDF3FB; }
+.picked {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: 0.6rem 0.8rem; background: var(--surface); border: 1.5px solid var(--ink); border-radius: var(--radius);
+}
+.picked > div { display: flex; flex-direction: column; }
+
+/* ---------- Open invoices ---------- */
+.invoices { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); }
+.inv-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--rule); background: #F7FAF7; font-weight: 700; }
+.invoices ul { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.invoices li + li { border-top: 1px solid #E4EAE5; }
+.invoices label { display: grid; grid-template-columns: auto 1fr auto; gap: 0.75rem; align-items: start; padding: 0.65rem 0.8rem; cursor: pointer; }
+.invoices input[type=checkbox] { margin-top: 0.2rem; }
+.invoices li.on { background: #EEF4EE; }
+.invoices li.blocked label { cursor: not-allowed; }
+.invoices li.blocked .inv-main strong, .invoices li.blocked .inv-amt { color: var(--muted); }
+.inv-main { display: flex; flex-direction: column; min-width: 0; }
+.inv-meta { display: flex; flex-wrap: wrap; gap: 0 0.8rem; font-size: 0.875rem; color: var(--muted); }
+.inv-note { font-size: 0.8125rem; color: var(--amber); font-weight: 700; }
+.inv-amt { font-weight: 700; white-space: nowrap; }
+.inv-amt.neg { color: var(--teal); }
+.overdue { color: var(--red); font-weight: 700; }
+
+/* ---------- Customer data ---------- */
+.narrow > .facts { margin-bottom: 1.25rem; }
+.howto { margin: 0.5rem 0 1rem; }
+.howto summary { cursor: pointer; color: var(--blue); }
+.howto ol { margin: 0.5rem 0 0; padding-left: 1.3rem; }
+.file-btn { cursor: pointer; }
+.preview { margin-top: 1rem; padding: 0.8rem 1rem; background: var(--paper); border-radius: var(--radius); }
+.preview p { margin: 0 0 0.75rem; }
+.warn-text { color: var(--red); font-weight: 700; }
+.table-wrap.flat { border: 0; margin-bottom: 0.75rem; }
+.table tfoot td { font-weight: 700; border-top: 1.5px solid var(--ink); border-bottom: 0; }

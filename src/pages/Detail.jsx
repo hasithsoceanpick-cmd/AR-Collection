@@ -60,7 +60,7 @@ export default function Detail() {
           <span className="slip-date">Recorded {fmtDate(c.created_at)} by {personName(c.creator)}</span>
         </div>
         <div className="slip-payee">
-          <span className="slip-cap">Received from</span>
+          <span className="slip-cap">Received from{c.customer_no ? `, customer ${c.customer_no}` : ''}</span>
           <h1>{c.customer_name}</h1>
         </div>
         <div className="slip-amount">
@@ -70,7 +70,7 @@ export default function Detail() {
             <span className="slip-changed">Expected LKR {lkr(c.expected_amount)}. The amount changed at collection.</span>
           )}
         </div>
-        {c.invoice_refs && <p className="slip-memo">For invoice {c.invoice_refs}</p>}
+        {c.invoice_refs && <p className="slip-memo">Settling {c.invoice_refs}</p>}
         <div className="slip-stamp"><StatusStamp status={c.status} big /></div>
       </div>
 
@@ -86,6 +86,31 @@ export default function Detail() {
       {isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
       {(isDriver || isFinance) && c.status === 'received' && <DepositPanel c={c} onDone={load} />}
       {isFinance && c.status === 'deposited' && <ClosePanel c={c} onDone={load} />}
+
+      {(c.settlement?.length > 0 || c.settlement_instructions) && (
+        <div className="facts">
+          <h2>Settlement</h2>
+          {c.settlement?.length > 0 && (
+            <div className="table-wrap flat">
+              <table className="table">
+                <thead><tr><th>Document</th><th>Type</th><th>Posted</th><th>Due</th><th className="num">Open LKR</th></tr></thead>
+                <tbody>
+                  {c.settlement.map((s) => (
+                    <tr key={s.document_no}>
+                      <td>{s.document_no}</td><td>{s.document_type || '—'}</td>
+                      <td>{fmtDate(s.posting_date)}</td><td>{fmtDate(s.due_date)}</td>
+                      <td className="num">{s.currency_code && s.currency_code !== 'LKR' ? `${s.currency_code} ` : ''}{lkr(s.remaining_amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr><td colSpan="4">Total of invoices</td>
+                  <td className="num">{lkr(c.settlement.reduce((t, s) => t + Number(s.remaining_amount), 0))}</td></tr></tfoot>
+              </table>
+            </div>
+          )}
+          {c.settlement_instructions && <p className="quote">Instructions: {c.settlement_instructions}</p>}
+        </div>
+      )}
 
       <div className="facts">
         <h2>Where and who</h2>

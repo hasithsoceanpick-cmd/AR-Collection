@@ -12,7 +12,7 @@ and can be added to a phone's home screen like an app.
 | Step | Who | What happens | Status after |
 |---|---|---|---|
 | 1 | Customer → Sales | Customer says the cheque is ready (outside the app) | |
-| 2 | Sales | Records customer, amount, invoice(s), address and map pin | With finance |
+| 2 | Sales | Picks the customer, ticks the open invoices being settled (or types settlement instructions), confirms the amount, address and map pin | With finance |
 | 3 | Finance | Assigns a driver and a collection date | To collect |
 | 4 | Driver | Photographs each cheque, confirms or corrects the amount. If the total differs, finance and sales are notified | Collected |
 | 5 | Finance | Confirms the physical cheques were handed over | To deposit |
@@ -25,6 +25,14 @@ Finance can cancel any open collection; sales can cancel their own before a driv
 **Who sees what:** finance sees everything, sales sees collections they recorded, drivers see
 collections assigned to them.
 
+**Customer data:** sales or finance upload two Business Central exports on the Customer data
+page: the Customer list and the open Customer Ledger Entries (Share → Open in Excel, uploaded
+unchanged). The customer list feeds the searchable dropdown; the ledger feeds the open-invoice
+picker. Each ledger upload replaces the previous one, so export all customers with Open = Yes.
+A collection keeps a copy of the invoices it settles, so later uploads never change it.
+Invoices already on another open collection are greyed out. The customer's address and map pin
+are remembered from their last collection.
+
 **Photos:** compressed on the phone before upload (~200 KB each) and stored in a private bucket.
 Under **Photo storage**, finance picks finished collections, downloads a zip backup (photos plus
 `cheques.csv`), and only then can delete the photos. Cheque details are never deleted.
@@ -35,8 +43,8 @@ Under **Photo storage**, finance picks finished collections, downloads a zip bac
 
 1. Create a free account at supabase.com → **New project**. Pick the Mumbai or Singapore region
    (closest to Sri Lanka). Save the database password somewhere safe.
-2. Open **SQL Editor → New query**, paste the whole of `supabase/schema.sql`, and click **Run**.
-   It should finish with "Success. No rows returned".
+2. Open **SQL Editor → New query** and run the database scripts in order (schema, then
+   002_customers_and_invoices). The scripts are kept outside this folder; ask for them if needed.
 3. **Authentication → Sign In / Providers → Email:** keep Email enabled. Turn **off**
    "Allow new users to sign up" so only people you add can get in.
 4. **Authentication → URL Configuration:** once Netlify gives you a site address (step 3),
@@ -98,7 +106,8 @@ npm run dev
 ## Files
 
 ```
-supabase/schema.sql     Tables, permissions, workflow functions, storage rules
+src/lib/bcimport.js     Reads Business Central Excel exports
+src/pages/CustomerData.jsx     Upload customer list and open invoices
 src/lib/                Supabase client, sign-in, workflow labels, formatting, photo compression
 src/pages/List.jsx      Collections list (For you / Open / Closed, search)
 src/pages/CollectionForm.jsx   New and edit (step 2)
