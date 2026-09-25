@@ -358,3 +358,13 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
 .warn-text { color: var(--red); font-weight: 700; }
 .table-wrap.flat { border: 0; margin-bottom: 0.75rem; }
 .table tfoot td { font-weight: 700; border-top: 1.5px solid var(--ink); border-bottom: 0; }
+
+/* ---------- Map search suggestions ---------- */
+.map-search { flex: 1 1 320px; }
+.combo-list li.place { flex-direction: column; justify-content: flex-start; gap: 0; }
+.combo-spin {
+  position: absolute; right: 0.75rem; top: 50%; width: 16px; height: 16px; margin-top: -8px;
+  border: 2px solid var(--rule); border-top-color: var(--ink); border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
