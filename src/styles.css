@@ -416,3 +416,18 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
   .sidenav .nav-extra { display: block; }
   .sidenav .nav-more { display: none; }
 }
+
+/* ---------- Live / Demo ---------- */
+.modeswitch { display: inline-flex; background: rgba(255,255,255,0.12); border-radius: 999px; padding: 3px; }
+.modeswitch button { border: 0; background: none; color: #fff; font: inherit; font-size: 0.875rem; font-weight: 700;
+  padding: 0.3rem 0.8rem; border-radius: 999px; cursor: pointer; min-height: 32px; opacity: 0.75; }
+.modeswitch button.on { background: #fff; color: var(--ink); opacity: 1; }
+.is-demo .topbar { background: #7A3E00; }
+.is-demo .modeswitch button.on { color: #7A3E00; }
+.demo-banner { grid-column: 1 / -1; background: #FFE8C2; color: #5A2E00; padding: 0.5rem 1rem; font-size: 0.9375rem;
+  border-bottom: 2px solid #E0A040; }
+.demo-banner strong { background: #7A3E00; color: #fff; border-radius: 4px; padding: 0.05rem 0.45rem; margin-right: 0.5rem; }
+.practice-tag { color: #7A3E00; font-weight: 700; }
+.practice-notice { background: #FFF1DA; border-left-color: #C07A20; }
+@media (max-width: 520px) { .brand-name { display: none; } .who { display: none; } }
+@media (min-width: 900px) { .is-demo .sidenav { top: 92px; } }
