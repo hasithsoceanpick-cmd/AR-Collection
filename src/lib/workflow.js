@@ -1,30 +1,38 @@
-// Mirrors the status flow enforced in supabase/schema.sql.
+// Mirrors the status flow enforced in the database.
 export const STATUS = {
   submitted: { label: 'With finance', tone: 'amber' },
   assigned:  { label: 'To collect',   tone: 'blue' },
-  collected: { label: 'Collected',    tone: 'violet' },
+  collected: { label: 'With driver',  tone: 'violet' },
   received:  { label: 'To deposit',   tone: 'blue' },
-  deposited: { label: 'Deposited',    tone: 'teal' },
+  deposited: { label: 'In bank?',     tone: 'teal' },
+  review:    { label: 'To review',    tone: 'amber' },
+  relink:    { label: 'Needs relink', tone: 'red' },
   closed:    { label: 'Closed',       tone: 'green' },
+  returned:  { label: 'Returned',     tone: 'red' },
   cancelled: { label: 'Cancelled',    tone: 'grey' },
 };
 
-// The six steps shown on the progress line (cancelled sits outside it).
-export const STEPS = [
+export const CHEQUE_STEPS = [
   { status: 'submitted', label: 'Recorded' },
   { status: 'assigned',  label: 'Driver assigned' },
   { status: 'collected', label: 'Collected' },
   { status: 'received',  label: 'Finance received' },
   { status: 'deposited', label: 'Deposited' },
-  { status: 'closed',    label: 'Closed' },
+  { status: 'closed',    label: 'In bank, closed' },
+];
+export const TRANSFER_STEPS = [
+  { status: 'review', label: 'Recorded and linked' },
+  { status: 'closed', label: 'Reviewed, closed' },
 ];
 
-export const isOpen = (c) => !['closed', 'cancelled'].includes(c.status);
+export const isOpen = (c) => !['closed', 'cancelled', 'returned'].includes(c.status);
+export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer' };
 
-// Is the next move on this collection the current user's?
+// Is the next move on this item the current user's?
 export function waitingOnMe(c, role, userId) {
-  if (role === 'finance') return ['submitted', 'collected', 'deposited'].includes(c.status);
+  if (role === 'finance') return ['submitted', 'collected', 'deposited', 'review'].includes(c.status);
   if (role === 'driver') return c.driver_id === userId && ['assigned', 'received'].includes(c.status);
+  if (role === 'sales') return c.created_by === userId && c.status === 'relink';
   return false;
 }
 
@@ -34,7 +42,11 @@ export function nextStepText(c) {
     case 'assigned':  return 'Driver to collect';
     case 'collected': return 'Driver to hand cheques to finance';
     case 'received':  return 'Cheques to be deposited';
-    case 'deposited': return 'Finance to verify the deposit';
+    case 'deposited': return 'Finance to match the slip to the bank';
+    case 'review':    return 'Finance to review';
+    case 'relink':    return 'Link to the right bank line';
     default: return '';
   }
 }
+
+export const TAGS = { cash_deposit: 'Cash deposit', internal: 'Internal transfer', other: 'Other' };
