@@ -1,12 +1,13 @@
-import { STEPS } from '../lib/workflow';
+import { CHEQUE_STEPS, TRANSFER_STEPS } from '../lib/workflow';
 
-export default function Progress({ status }) {
-  if (status === 'cancelled') return null;
-  const at = STEPS.findIndex((s) => s.status === status);
+export default function Progress({ status, kind = 'cheque' }) {
+  if (['cancelled', 'returned', 'relink'].includes(status)) return null;
+  const steps = kind === 'transfer' ? TRANSFER_STEPS : CHEQUE_STEPS;
+  const at = steps.findIndex((s) => s.status === status);
   return (
     <ol className="progress" aria-label="Progress">
-      {STEPS.map((s, i) => (
-        <li key={s.status} className={i < at ? 'done' : i === at ? 'now' : ''}
+      {steps.map((s, i) => (
+        <li key={s.status} className={i < at ? 'done' : i === at ? (status === 'closed' ? 'done' : 'now') : ''}
           aria-current={i === at ? 'step' : undefined}>
           <span className="dot" />
           <span className="plabel">{s.label}</span>
