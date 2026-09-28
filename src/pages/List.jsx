@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, COLLECTION_SELECT } from '../lib/supabase';
+import { supabase, COLLECTION_SELECT, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { isOpen, waitingOnMe, nextStepText } from '../lib/workflow';
 import { lkr, ref, fmtDate, personName, daysAgo } from '../lib/format';
@@ -15,7 +15,7 @@ export default function List() {
   const [q, setQ] = useState('');
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from('collections').select(COLLECTION_SELECT)
+    const { data, error } = await db.from('collections').select(COLLECTION_SELECT)
       .order('created_at', { ascending: false }).limit(500);
     if (error) setError(error.message); else setRows(data);
   }, []);
@@ -23,7 +23,7 @@ export default function List() {
   useEffect(() => {
     load();
     const ch = supabase.channel('collections-list')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'collections' }, () => load())
+      .on('postgres_changes', { event: '*', schema: SCHEMA, table: 'collections' }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [load]);
@@ -108,6 +108,7 @@ export default function List() {
                 <span className="row-meta">
                   <span>{ref(c.id)}</span>
                   {c.kind === 'transfer' && <span className="kind-tag">Transfer</span>}
+                  {c.notes?.startsWith('Practice scenario') && <span className="practice-tag">Practice</span>}
                   {c.customer_no && <span>{c.customer_no}</span>}
                   {c.invoice_refs && <span>Inv. {c.invoice_refs}</span>}
                 </span>

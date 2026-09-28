@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { fetchAll } from '../lib/bcimport';
 import { ref, lkr, fmtDateTime, personName } from '../lib/format';
@@ -30,18 +30,18 @@ export default function CollectionForm() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchAll(() => supabase.from('customers')
+    fetchAll(() => db.from('customers')
       .select('customer_no,name,address,city,phone,contact,location_text,lat,lng')
       .eq('in_latest_list', true).order('name'))
       .then(setCustomers).catch(() => setCustomers([]));
-    supabase.from('imports').select('done_at, by:profiles(full_name,email)').eq('kind', 'ledger')
+    db.from('imports').select('done_at, by:profiles(full_name,email)').eq('kind', 'ledger')
       .order('done_at', { ascending: false }).limit(1).maybeSingle()
       .then(({ data }) => setLedgerInfo(data ?? false));
   }, []);
 
   useEffect(() => {
     if (!editing) return;
-    supabase.from('collections').select('*').eq('id', id).single().then(({ data, error }) => {
+    db.from('collections').select('*').eq('id', id).single().then(({ data, error }) => {
       if (error) { setError('Collection not found'); return; }
       setSnapshot(data.settlement ?? []);
       setF({
@@ -59,8 +59,8 @@ export default function CollectionForm() {
   useEffect(() => {
     if (!replaces) return;
     Promise.all([
-      supabase.from('collections').select('*').eq('id', replaces).single(),
-      supabase.from('cheques').select('*').eq('collection_id', replaces),
+      db.from('collections').select('*').eq('id', replaces).single(),
+      db.from('cheques').select('*').eq('collection_id', replaces),
     ]).then(([{ data, error }, q]) => {
       if (error || data.status !== 'returned') { setError('That collection is not a returned cheque.'); return; }
       const bounced = (q.data ?? []).find((x) => x.id === data.returned_cheque_id);

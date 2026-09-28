@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db } from '../lib/supabase';
 import { parseCustomers, parseLedger } from '../lib/bcimport';
 import { fmtDateTime, personName } from '../lib/format';
 
@@ -76,11 +76,11 @@ export default function CustomerData() {
   const [ledgerCustomers, setLedgerCustomers] = useState(0);
 
   const load = useCallback(async () => {
-    const q = (kind) => supabase.from('imports').select('*, by:profiles(full_name,email)')
+    const q = (kind) => db.from('imports').select('*, by:profiles(full_name,email)')
       .eq('kind', kind).order('done_at', { ascending: false }).limit(1).maybeSingle();
     const [c, l] = await Promise.all([q('customers'), q('ledger')]);
     setLast({ customers: c.data, ledger: l.data });
-    const { data } = await supabase.from('customer_ledger').select('customer_no').limit(5000);
+    const { data } = await db.from('customer_ledger').select('customer_no').limit(5000);
     setLedgerCustomers(new Set((data ?? []).map((r) => r.customer_no)).size);
   }, []);
   useEffect(() => { load(); }, [load]);

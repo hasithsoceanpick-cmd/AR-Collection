@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db } from '../lib/supabase';
 import { readRows, findHeaderRow, headerCells, suggestMapping, parseStatement } from '../lib/statement';
 import { lkr, fmtDate, fmtDateTime, ref as ccRef, personName } from '../lib/format';
 import { TAGS } from '../lib/workflow';
@@ -46,7 +46,7 @@ function ColumnSetup({ account, onSaved, onClose }) {
   }, [rows, map]);
 
   async function save() {
-    const { error } = await supabase.from('bank_accounts').update({ mapping: map }).eq('id', account.id);
+    const { error } = await db.from('bank_accounts').update({ mapping: map }).eq('id', account.id);
     if (error) setError(error.message); else onSaved();
   }
 
@@ -209,7 +209,7 @@ function AccountForm({ initial, onSaved, onClose }) {
       bank: f.bank.trim(), account_no: f.account_no.trim(), name: f.name.trim(), bc_code: f.bc_code.trim() || null,
       track_from: f.track_from, opening_balance: f.opening_balance === '' ? null : Number(String(f.opening_balance).replace(/,/g, '')),
     };
-    const q = initial ? supabase.from('bank_accounts').update(row).eq('id', initial.id) : supabase.from('bank_accounts').insert(row);
+    const q = initial ? db.from('bank_accounts').update(row).eq('id', initial.id) : db.from('bank_accounts').insert(row);
     const { error } = await q;
     if (error) setError(error.message.includes('duplicate') ? 'That account number is already set up.' : error.message);
     else onSaved();
@@ -242,7 +242,7 @@ function LinesBrowser({ accounts }) {
 
   const load = useCallback(async () => {
     if (!accountId) { setLines([]); return; }
-    let q = supabase.from('statement_lines').select('*').eq('account_id', accountId).order('txn_date', { ascending: false }).order('id').limit(1000);
+    let q = db.from('statement_lines').select('*').eq('account_id', accountId).order('txn_date', { ascending: false }).order('id').limit(1000);
     if (filter === 'open') q = q.gt('credit', 0).is('link_kind', null);
     if (filter === 'credits') q = q.gt('credit', 0);
     if (filter === 'debits') q = q.gt('debit', 0);
@@ -316,8 +316,8 @@ export default function Bank() {
 
   const load = useCallback(async () => {
     const [a, u] = await Promise.all([
-      supabase.from('bank_accounts').select('*').order('name'),
-      supabase.from('statement_uploads').select('*, by:profiles(full_name,email)').order('done_at', { ascending: false }).limit(200),
+      db.from('bank_accounts').select('*').order('name'),
+      db.from('statement_uploads').select('*, by:profiles(full_name,email)').order('done_at', { ascending: false }).limit(200),
     ]);
     setAccounts(a.data ?? []);
     setUploads(u.data ?? []);

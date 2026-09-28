@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpcLive } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
 export default function Account() {
@@ -11,7 +11,7 @@ export default function Account() {
 
   async function saveName(e) {
     e.preventDefault(); setMsg(''); setError('');
-    try { await rpc('cc_set_my_name', { p_name: name }); await reloadProfile(); setMsg('Name saved.'); }
+    try { await rpcLive('cc_set_my_name', { p_name: name }); await reloadProfile(); setMsg('Name saved.'); }
     catch (err) { setError(err.message); }
   }
   async function savePw(e) {

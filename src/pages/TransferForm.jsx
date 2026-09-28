@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase, rpc, uploadMine } from '../lib/supabase';
+import { supabase, rpc, uploadMine, db } from '../lib/supabase';
 import { fetchAll } from '../lib/bcimport';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import CustomerPicker from '../components/CustomerPicker';
@@ -26,7 +26,7 @@ export default function TransferForm() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchAll(() => supabase.from('customers').select('customer_no,name').eq('in_latest_list', true).order('name'))
+    fetchAll(() => db.from('customers').select('customer_no,name').eq('in_latest_list', true).order('name'))
       .then(setCustomers).catch(() => setCustomers([]));
     rpc('cc_statement_freshness').then(setFresh).catch(() => setFresh([]));
   }, []);

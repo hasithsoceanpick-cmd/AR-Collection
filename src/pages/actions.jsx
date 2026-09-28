@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, rpc, uploadPhoto } from '../lib/supabase';
+import { supabase, rpc, uploadPhoto, db } from '../lib/supabase';
 import BankLinePicker from '../components/BankLinePicker';
 import { lkr, todayISO } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
@@ -27,7 +27,7 @@ export function AssignPanel({ c, onDone }) {
   const { busy, error, run } = useAction(onDone);
 
   useEffect(() => {
-    supabase.from('profiles').select('id, full_name, email').eq('role', 'driver').eq('active', true)
+    db.from('profiles').select('id, full_name, email').eq('role', 'driver').eq('active', true)
       .order('full_name').then(({ data }) => setDrivers(data ?? []));
   }, []);
 
@@ -238,7 +238,7 @@ export function RelinkPanel({ c, onDone }) {
   const [line, setLine] = useState(null);
   const { busy, error, run } = useAction(onDone);
   useEffect(() => {
-    supabase.from('bank_accounts').select('id, name').eq('active', true).order('name').then(({ data }) => setAccounts(data ?? []));
+    db.from('bank_accounts').select('id, name').eq('active', true).order('name').then(({ data }) => setAccounts(data ?? []));
   }, []);
   return (
     <div className="action">
