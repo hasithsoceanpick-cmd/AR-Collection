@@ -11,6 +11,11 @@ import Photos from './pages/Photos';
 import Users from './pages/Users';
 import Account from './pages/Account';
 import CustomerData from './pages/CustomerData';
+import TransferForm from './pages/TransferForm';
+import Deposits from './pages/Deposits';
+import Reports from './pages/Reports';
+import Bank from './pages/Bank';
+import More from './pages/More';
 
 function Gate() {
   const { session, loading, role } = useAuth();
@@ -26,6 +31,11 @@ function Gate() {
         <Route path="c/:id" element={<Detail />} />
         {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}
         {canCreate && <Route path="customers" element={<CustomerData />} />}
+        {canCreate && <Route path="transfer" element={<TransferForm />} />}
+        {(role === 'driver' || role === 'finance') && <Route path="deposits" element={<Deposits />} />}
+        <Route path="reports" element={<Reports />} />
+        {role === 'finance' && <Route path="bank" element={<Bank />} />}
+        <Route path="more" element={<More />} />
         {role === 'finance' && <Route path="photos" element={<Photos />} />}
         {role === 'finance' && <Route path="users" element={<Users />} />}
         <Route path="account" element={<Account />} />
