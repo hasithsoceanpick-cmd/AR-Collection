@@ -24,6 +24,16 @@ export async function uploadPhoto(collectionId, kind, blob) {
   return path;
 }
 
+// Upload into the signed-in user's own folder (u/<user id>/…). Used for deposit
+// slips and transfer receipts, which are uploaded before their record exists.
+export async function uploadMine(blob, kind, ext, contentType) {
+  const { data } = await supabase.auth.getUser();
+  const path = `u/${data.user.id}/${kind}-${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType, upsert: false });
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+  return path;
+}
+
 // Collection with the names of everyone involved.
 export const COLLECTION_SELECT = `*,
   creator:profiles!collections_created_by_fkey(full_name,email),

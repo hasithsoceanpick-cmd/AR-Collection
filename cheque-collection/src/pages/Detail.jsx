@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { supabase, rpc, COLLECTION_SELECT } from '../lib/supabase';
+import { supabase, COLLECTION_SELECT } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { isOpen } from '../lib/workflow';
 import { lkr, ref, fmtDate, fmtDateTime, personName } from '../lib/format';
 import StatusStamp from '../components/StatusStamp';
 import Progress from '../components/Progress';
 import MapView, { directionsUrl } from '../components/MapView';
 import SignedImage from '../components/SignedImage';
-import { AssignPanel, CollectPanel, ReceivePanel, DepositPanel, ClosePanel, CancelPanel } from './actions';
+import DepositLink from '../components/DepositLink';
+import {
+  AssignPanel, CollectPanel, ReceivePanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
+} from './actions';
 
 export default function Detail() {
   const { id } = useParams();
@@ -17,6 +19,9 @@ export default function Detail() {
   const [c, setC] = useState(undefined);
   const [cheques, setCheques] = useState([]);
   const [events, setEvents] = useState([]);
+  const [deposit, setDeposit] = useState(null);
+  const [line, setLine] = useState(null);
+  const [replacement, setReplacement] = useState(null);
 
   const load = useCallback(async () => {
     const [a, b, e] = await Promise.all([
@@ -24,9 +29,23 @@ export default function Detail() {
       supabase.from('cheques').select('*').eq('collection_id', id).order('id'),
       supabase.from('events').select('*, actor:profiles(full_name,email)').eq('collection_id', id).order('id'),
     ]);
-    setC(a.data ?? null);
-    setCheques(b.data ?? []);
-    setEvents(e.data ?? []);
+    const col = a.data ?? null;
+    setC(col); setCheques(b.data ?? []); setEvents(e.data ?? []);
+    if (!col) return;
+    let lineId = col.kind === 'transfer' ? col.line_id : null;
+    if (col.deposit_id) {
+      const { data } = await supabase.from('deposits').select('*, account:bank_accounts(name), collections(id, customer_name, collected_amount)')
+        .eq('id', col.deposit_id).maybeSingle();
+      setDeposit(data); lineId = data?.line_id ?? null;
+    } else setDeposit(null);
+    if (lineId) {
+      const { data } = await supabase.from('bank_credits').select('*').eq('id', lineId).maybeSingle();
+      setLine(data);
+    } else setLine(null);
+    if (col.status === 'returned') {
+      const { data } = await supabase.from('collections').select('id, status').eq('replaces_id', col.id).neq('status', 'cancelled').maybeSingle();
+      setReplacement(data);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -39,14 +58,18 @@ export default function Detail() {
 
   if (c === undefined) return <p className="muted">Loading…</p>;
   if (c === null) return (
-    <div className="empty"><p>This collection doesn't exist or isn't shared with you.</p><Link to="/">Back to collections</Link></div>
+    <div className="empty"><p>This item doesn't exist or isn't shared with you.</p><Link to="/">Back to collections</Link></div>
   );
 
+  const isTransfer = c.kind === 'transfer';
   const isDriver = role === 'driver' && c.driver_id === uid;
   const isFinance = role === 'finance';
-  const canEdit = (role === 'sales' && c.created_by === uid && c.status === 'submitted')
-    || (isFinance && ['submitted', 'assigned'].includes(c.status));
-  const canCancel = (isFinance && isOpen(c)) || (role === 'sales' && c.created_by === uid && c.status === 'submitted');
+  const isCreator = c.created_by === uid;
+  const canEdit = !isTransfer && ((role === 'sales' && isCreator && c.status === 'submitted')
+    || (isFinance && ['submitted', 'assigned'].includes(c.status)));
+  const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
+    || (role === 'sales' && isCreator && ['submitted', 'review', 'relink'].includes(c.status));
+  const canReturn = isFinance && !isTransfer && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
   const shownAmount = c.collected_amount ?? c.expected_amount;
 
@@ -56,7 +79,7 @@ export default function Detail() {
 
       <div className="slip">
         <div className="slip-top">
-          <span className="slip-ref">{ref(c.id)}</span>
+          <span className="slip-ref">{ref(c.id)} · {isTransfer ? 'Bank transfer' : 'Cheque collection'}</span>
           <span className="slip-date">Recorded {fmtDate(c.created_at)} by {personName(c.creator)}</span>
         </div>
         <div className="slip-payee">
@@ -64,28 +87,41 @@ export default function Detail() {
           <h1>{c.customer_name}</h1>
         </div>
         <div className="slip-amount">
-          <span className="slip-cap">{c.collected_amount != null ? 'Collected' : 'Expected'}</span>
+          <span className="slip-cap">{isTransfer ? 'Transferred' : c.collected_amount != null ? 'Collected' : 'Expected'}</span>
           <span className="slip-figure">LKR {lkr(shownAmount)}</span>
-          {c.amount_changed && (
-            <span className="slip-changed">Expected LKR {lkr(c.expected_amount)}. The amount changed at collection.</span>
-          )}
+          {c.amount_changed && <span className="slip-changed">Expected LKR {lkr(c.expected_amount)}. The amount changed at collection.</span>}
         </div>
         {c.invoice_refs && <p className="slip-memo">Settling {c.invoice_refs}</p>}
         <div className="slip-stamp"><StatusStamp status={c.status} big /></div>
       </div>
 
-      <Progress status={c.status} />
+      <Progress status={c.status} kind={c.kind} />
 
-      {c.status === 'cancelled' && (
-        <div className="notice">Cancelled {fmtDate(c.cancelled_at)}: {c.cancel_reason}</div>
+      {c.status === 'cancelled' && <div className="notice">Cancelled {fmtDate(c.cancelled_at)}: {c.cancel_reason}</div>}
+      {c.replaces_id && <div className="notice">This replaces returned collection <Link to={`/c/${c.replaces_id}`}>{ref(c.replaces_id)}</Link>.</div>}
+      {c.status === 'returned' && (
+        <div className="notice danger-notice">
+          Cheque returned {fmtDate(c.returned_at)}: {c.return_reason}.{' '}
+          {replacement ? <>Replacement: <Link to={`/c/${replacement.id}`}>{ref(replacement.id)}</Link>.</>
+            : (isFinance || (role === 'sales' && isCreator)) ? <Link to={`/new?replaces=${c.id}`}>Raise a replacement collection</Link>
+            : 'No replacement raised yet.'}
+        </div>
       )}
+      {c.status === 'relink' && <div className="notice">This transfer isn't linked to a bank line.</div>}
 
       {/* The action for whoever is next */}
-      {isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
-      {(isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
-      {isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
-      {(isDriver || isFinance) && c.status === 'received' && <DepositPanel c={c} onDone={load} />}
-      {isFinance && c.status === 'deposited' && <ClosePanel c={c} onDone={load} />}
+      {!isTransfer && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
+      {!isTransfer && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
+      {!isTransfer && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
+      {!isTransfer && (isDriver || isFinance) && c.status === 'received' && (
+        <div className="action quiet">
+          <Link className="btn primary" to="/deposits">Record the deposit slip</Link>
+          <span className="hint">Deposits are recorded per slip, so several collections can go on one.</span>
+        </div>
+      )}
+      {!isTransfer && isFinance && c.status === 'deposited' && deposit && !deposit.line_id && <DepositLink deposit={deposit} onDone={load} />}
+      {isTransfer && isFinance && c.status === 'review' && <TransferReviewPanel c={c} line={line} onDone={load} />}
+      {isTransfer && c.status === 'relink' && (isFinance || (role === 'sales' && isCreator)) && <RelinkPanel c={c} onDone={load} />}
 
       {(c.settlement?.length > 0 || c.settlement_instructions) && (
         <div className="facts">
@@ -99,7 +135,7 @@ export default function Detail() {
                     <tr key={s.document_no}>
                       <td>{s.document_no}</td><td>{s.document_type || '—'}</td>
                       <td>{fmtDate(s.posting_date)}</td><td>{fmtDate(s.due_date)}</td>
-                      <td className="num">{s.currency_code && s.currency_code !== 'LKR' ? `${s.currency_code} ` : ''}{lkr(s.remaining_amount)}</td>
+                      <td className="num">{lkr(s.remaining_amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -112,24 +148,46 @@ export default function Detail() {
         </div>
       )}
 
-      <div className="facts">
-        <h2>Where and who</h2>
-        <dl>
-          {c.location_text && <><dt>Address</dt><dd>{c.location_text}</dd></>}
-          {c.contact_person && <><dt>Contact</dt><dd>{c.contact_person}</dd></>}
-          {c.contact_phone && <><dt>Phone</dt><dd><a href={`tel:${c.contact_phone}`}>{c.contact_phone}</a></dd></>}
-          {c.driver_id && <><dt>Driver</dt><dd>{personName(c.driver)}</dd></>}
-          {c.collection_date && <><dt>Collection date</dt><dd>{fmtDate(c.collection_date)}</dd></>}
-          {c.instructions && <><dt>Instructions</dt><dd>{c.instructions}</dd></>}
-          {c.notes && <><dt>Notes from sales</dt><dd>{c.notes}</dd></>}
-        </dl>
-        {c.lat != null && c.lng != null ? (
-          <>
-            <MapView lat={c.lat} lng={c.lng} />
-            <a className="btn" href={directionsUrl(c.lat, c.lng)} target="_blank" rel="noreferrer">Directions in Google Maps</a>
-          </>
-        ) : <p className="muted">No map pin was added.</p>}
-      </div>
+      {isTransfer && (
+        <div className="facts">
+          <h2>Bank</h2>
+          {line ? (
+            <dl>
+              <dt>Account</dt><dd>{line.account_name}</dd>
+              <dt>Bank date</dt><dd>{fmtDate(line.txn_date)}</dd>
+              <dt>Narration</dt><dd>{line.narration}</dd>
+              {line.reference && <><dt>Reference</dt><dd>{line.reference}</dd></>}
+              <dt>Amount</dt><dd>LKR {lkr(line.credit)}</dd>
+            </dl>
+          ) : <p className="muted">Not linked to a bank line.</p>}
+          <h2>Receipt</h2>
+          {c.receipt_path ? (photosGone ? <div className="img-missing">Receipt deleted after backup</div>
+            : <div className="slip-photo"><SignedImage path={c.receipt_path} alt="Receipt" /></div>)
+            : <p>No receipt. Reason given: {c.no_receipt_reason}</p>}
+          {c.notes && <p className="quote">Notes: {c.notes}</p>}
+        </div>
+      )}
+
+      {!isTransfer && (
+        <div className="facts">
+          <h2>Where and who</h2>
+          <dl>
+            {c.location_text && <><dt>Address</dt><dd>{c.location_text}</dd></>}
+            {c.contact_person && <><dt>Contact</dt><dd>{c.contact_person}</dd></>}
+            {c.contact_phone && <><dt>Phone</dt><dd><a href={`tel:${c.contact_phone}`}>{c.contact_phone}</a></dd></>}
+            {c.driver_id && <><dt>Driver</dt><dd>{personName(c.driver)}</dd></>}
+            {c.collection_date && <><dt>Collection date</dt><dd>{fmtDate(c.collection_date)}</dd></>}
+            {c.instructions && <><dt>Instructions</dt><dd>{c.instructions}</dd></>}
+            {c.notes && <><dt>Notes from sales</dt><dd>{c.notes}</dd></>}
+          </dl>
+          {c.lat != null && c.lng != null ? (
+            <>
+              <MapView lat={c.lat} lng={c.lng} />
+              <a className="btn" href={directionsUrl(c.lat, c.lng)} target="_blank" rel="noreferrer">Directions in Google Maps</a>
+            </>
+          ) : <p className="muted">No map pin was added.</p>}
+        </div>
+      )}
 
       {cheques.length > 0 && (
         <div className="facts">
@@ -145,6 +203,7 @@ export default function Detail() {
                   <span>{q.bank || 'Bank not given'}</span>
                   <span>Dated {fmtDate(q.cheque_date)}</span>
                   <span className="num">LKR {lkr(q.amount)}</span>
+                  {q.returned_at && <span className="warn-text">Returned {fmtDate(q.returned_at)}: {q.return_reason}</span>}
                 </div>
               </li>
             ))}
@@ -152,17 +211,28 @@ export default function Detail() {
         </div>
       )}
 
-      {c.deposit_slip_path && (
+      {deposit && (
         <div className="facts">
-          <h2>Deposit</h2>
+          <h2>Deposit slip D-{deposit.id}</h2>
           <dl>
-            <dt>Deposited on</dt><dd>{fmtDate(c.deposit_date)}</dd>
-            {c.deposit_reference && <><dt>Reference</dt><dd>{c.deposit_reference}</dd></>}
+            <dt>Account</dt><dd>{deposit.account?.name}</dd>
+            <dt>Deposited on</dt><dd>{fmtDate(deposit.deposit_date)}</dd>
+            {deposit.reference && <><dt>Reference</dt><dd>{deposit.reference}</dd></>}
+            <dt>Slip total</dt><dd>LKR {lkr(deposit.slip_total)}</dd>
+            <dt>On this slip</dt>
+            <dd>{deposit.collections.map((x, i) => <span key={x.id}>{i > 0 && ', '}<Link to={`/c/${x.id}`}>{ref(x.id)}</Link> {x.customer_name}</span>)}</dd>
+            <dt>In the bank</dt>
+            <dd>{line ? `${fmtDate(line.txn_date)}, ${line.narration}` : 'Not matched yet'}</dd>
           </dl>
           <div className="slip-photo">
-            {photosGone ? <div className="img-missing">Photo deleted after backup</div>
-              : <SignedImage path={c.deposit_slip_path} alt="Deposit slip" />}
+            {photosGone ? <div className="img-missing">Photo deleted after backup</div> : <SignedImage path={deposit.slip_path} alt="Deposit slip" />}
           </div>
+        </div>
+      )}
+      {!deposit && c.deposit_slip_path && (
+        <div className="facts">
+          <h2>Earlier deposit slip</h2>
+          <div className="slip-photo">{photosGone ? <div className="img-missing">Photo deleted after backup</div> : <SignedImage path={c.deposit_slip_path} alt="Deposit slip" />}</div>
         </div>
       )}
 
@@ -178,9 +248,11 @@ export default function Detail() {
         </ol>
       </div>
 
-      {(canEdit || canCancel) && (
+      {(canEdit || canCancel || canReturn || (isFinance && c.status === 'closed')) && (
         <div className="quiet-actions">
           {canEdit && <Link className="btn ghost" to={`/c/${c.id}/edit`}>Edit details</Link>}
+          {isFinance && c.status === 'closed' && <ReopenPanel c={c} onDone={load} />}
+          {canReturn && <ReturnChequePanel c={c} cheques={cheques.filter((q) => !q.returned_at)} onDone={load} />}
           {canCancel && <CancelPanel c={c} onDone={load} />}
         </div>
       )}

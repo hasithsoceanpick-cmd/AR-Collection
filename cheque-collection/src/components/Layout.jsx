@@ -4,15 +4,23 @@ import Notifications from './Notifications';
 
 const ROLE_LABEL = { sales: 'Sales', driver: 'Driver', finance: 'Finance' };
 
-export default function Layout() {
-  const { profile, role } = useAuth();
-  const links = [
-    { to: '/', label: 'Collections', end: true },
-    ...(role === 'sales' || role === 'finance'
-      ? [{ to: '/new', label: 'New collection' }, { to: '/customers', label: 'Customer data' }] : []),
-    ...(role === 'finance' ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
+export function navLinks(role) {
+  const s = role === 'sales', f = role === 'finance', d = role === 'driver';
+  return [
+    { to: '/', label: 'Collections', end: true, main: true },
+    ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }] : []),
+    ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),
+    { to: '/reports', label: 'Reports', main: true },
+    ...(f ? [{ to: '/bank', label: 'Bank' }] : []),
+    ...(s || f ? [{ to: '/customers', label: 'Customer data' }] : []),
+    ...(f ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
     { to: '/account', label: 'Account' },
   ];
+}
+
+export default function Layout() {
+  const { profile, role } = useAuth();
+  const links = navLinks(role);
   return (
     <div className="shell">
       <header className="topbar">
@@ -28,8 +36,9 @@ export default function Layout() {
       </header>
       <nav className="sidenav" aria-label="Main">
         {links.map((l) => (
-          <NavLink key={l.to} to={l.to} end={l.end}>{l.label}</NavLink>
+          <NavLink key={l.to} to={l.to} end={l.end} className={l.main ? 'nav-main' : 'nav-extra'}>{l.label}</NavLink>
         ))}
+        <NavLink to="/more" className="nav-more">More</NavLink>
       </nav>
       <main className="content">
         <Outlet />

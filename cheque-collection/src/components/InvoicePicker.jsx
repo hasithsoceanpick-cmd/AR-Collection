@@ -40,7 +40,7 @@ export default function InvoicePicker({ customerNo, selected, onChange, snapshot
     onChange(docs, Math.round(sum * 100) / 100);
   }
   function toggle(doc) { const n = new Set(sel); n.has(doc) ? n.delete(doc) : n.add(doc); emit(n); }
-  const free = (rows ?? []).filter((r) => !taken[r.document_no]);
+  const free = rows ?? [];
   function toggleAll() { emit(sel.size === free.length ? new Set() : new Set(free.map((r) => r.document_no))); }
 
   if (error) return <p className="error">{error}</p>;
@@ -61,9 +61,9 @@ export default function InvoicePicker({ customerNo, selected, onChange, snapshot
           const blockedBy = taken[r.document_no];
           const overdue = r.due_date && r.due_date < today && Number(r.remaining_amount) > 0;
           return (
-            <li key={r.document_no} className={`${on ? 'on' : ''}${blockedBy ? ' blocked' : ''}`}>
+            <li key={r.document_no} className={on ? 'on' : ''}>
               <label>
-                <input type="checkbox" checked={on} disabled={Boolean(blockedBy) && !on} onChange={() => toggle(r.document_no)} />
+                <input type="checkbox" checked={on} onChange={() => toggle(r.document_no)} />
                 <span className="inv-main">
                   <strong>{r.document_no}</strong>
                   <span className="inv-meta">
@@ -72,7 +72,7 @@ export default function InvoicePicker({ customerNo, selected, onChange, snapshot
                     {r.due_date && <span className={overdue ? 'overdue' : ''}>Due {fmtDate(r.due_date)}</span>}
                     {r.external_document_no && <span>Ext. {r.external_document_no}</span>}
                   </span>
-                  {blockedBy && <span className="inv-note">Already on {ref(blockedBy)}</span>}
+                  {blockedBy && <span className="inv-note">Also on {ref(blockedBy)}: check it isn't paid twice</span>}
                   {r.fromSnapshot && <span className="inv-note">No longer open in the latest upload</span>}
                 </span>
                 <span className={`num inv-amt${Number(r.remaining_amount) < 0 ? ' neg' : ''}`}>

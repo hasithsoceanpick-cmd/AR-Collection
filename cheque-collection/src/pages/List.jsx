@@ -41,11 +41,11 @@ export default function List() {
   }, [rows, role, uid]);
 
   const tabs = [
-    ...(role !== 'sales' ? [{ key: 'mine', label: 'For you', list: groups.mine }] : []),
+    { key: 'mine', label: 'For you', list: groups.mine },
     { key: 'open', label: 'Open', list: groups.open },
     { key: 'done', label: 'Closed', list: groups.done },
   ];
-  const active = tab ?? (role !== 'sales' && groups.mine.length ? 'mine' : 'open');
+  const active = tab ?? (groups.mine.length ? 'mine' : 'open');
   const current = tabs.find((t) => t.key === active) ?? tabs[0];
 
   const term = q.trim().toLowerCase();
@@ -67,7 +67,12 @@ export default function List() {
       )}
       <div className="page-head">
         <h1>Collections</h1>
-        {(role === 'sales' || role === 'finance') && <Link className="btn primary" to="/new">New collection</Link>}
+        {(role === 'sales' || role === 'finance') && (
+          <div className="row">
+            <Link className="btn primary" to="/new">New collection</Link>
+            <Link className="btn" to="/transfer">Record transfer</Link>
+          </div>
+        )}
       </div>
 
       <div className="list-tools">
@@ -102,11 +107,12 @@ export default function List() {
                 <span className="row-customer">{c.customer_name}</span>
                 <span className="row-meta">
                   <span>{ref(c.id)}</span>
+                  {c.kind === 'transfer' && <span className="kind-tag">Transfer</span>}
                   {c.customer_no && <span>{c.customer_no}</span>}
                   {c.invoice_refs && <span>Inv. {c.invoice_refs}</span>}
                 </span>
                 <span className="row-next">
-                  {c.status === 'assigned' || c.status === 'received'
+                  {c.kind === 'cheque' && (c.status === 'assigned' || c.status === 'received')
                     ? `${personName(c.driver)}${c.collection_date && c.status === 'assigned' ? `, ${fmtDate(c.collection_date)}` : ''}`
                     : isOpen(c) ? nextStepText(c) : fmtDate(c.closed_at ?? c.cancelled_at)}
                 </span>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { supabase, rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { fetchAll } from '../lib/bcimport';
@@ -18,7 +18,9 @@ export default function CollectionForm() {
   const editing = Boolean(id);
   const nav = useNavigate();
   const { role } = useAuth();
-  const [f, setF] = useState(editing ? null : EMPTY);
+  const [params] = useSearchParams();
+  const replaces = !editing && params.get('replaces') ? Number(params.get('replaces')) : null;
+  const [f, setF] = useState(editing || replaces ? null : EMPTY);
   const [snapshot, setSnapshot] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [ledgerInfo, setLedgerInfo] = useState(null);
@@ -52,6 +54,29 @@ export default function CollectionForm() {
       });
     });
   }, [editing, id]);
+
+  // Replacement for a returned cheque: copy the customer, invoices, amount and place.
+  useEffect(() => {
+    if (!replaces) return;
+    Promise.all([
+      supabase.from('collections').select('*').eq('id', replaces).single(),
+      supabase.from('cheques').select('*').eq('collection_id', replaces),
+    ]).then(([{ data, error }, q]) => {
+      if (error || data.status !== 'returned') { setError('That collection is not a returned cheque.'); return; }
+      const bounced = (q.data ?? []).find((x) => x.id === data.returned_cheque_id);
+      setSnapshot(data.settlement ?? []);
+      setF({
+        customer: { customer_no: data.customer_no, name: data.customer_name },
+        settlement_docs: (data.settlement ?? []).map((s) => s.document_no),
+        settlement_instructions: data.settlement_instructions ?? '',
+        expected_amount: String(bounced?.amount ?? data.collected_amount ?? data.expected_amount),
+        contact_person: data.contact_person ?? '', contact_phone: data.contact_phone ?? '',
+        location_text: data.location_text ?? '', lat: data.lat, lng: data.lng,
+        notes: `Replacement for returned cheque ${bounced?.cheque_no ?? ''} (${ref(replaces)}).`,
+      });
+      setAmountTouched(true);
+    });
+  }, [replaces]);
 
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
 
@@ -88,6 +113,7 @@ export default function CollectionForm() {
       expected_amount: String(f.expected_amount).replace(/,/g, ''),
       contact_person: f.contact_person, contact_phone: f.contact_phone,
       location_text: f.location_text, lat: f.lat, lng: f.lng, notes: f.notes,
+      replaces_id: replaces,
     };
     try {
       if (editing) {
@@ -107,8 +133,8 @@ export default function CollectionForm() {
 
   return (
     <section className="narrow">
-      <div className="page-head"><h1>{editing ? `Edit ${ref(id)}` : 'New collection'}</h1></div>
-      {!editing && <p className="lede">The customer has a cheque ready. Record it here and finance will send a driver.</p>}
+      <div className="page-head"><h1>{editing ? `Edit ${ref(id)}` : replaces ? `Replacement for ${ref(replaces)}` : 'New collection'}</h1></div>
+      {!editing && !replaces && <p className="lede">The customer has a cheque ready. Record it here and finance will send a driver.</p>}
 
       {customers.length === 0 && (
         <div className="notice">
@@ -130,7 +156,7 @@ export default function CollectionForm() {
             {ledgerInfo === false && <span className="hint">Open invoices haven't been uploaded yet. <Link to="/customers">Upload them</Link> or type instructions below.</span>}
             <InvoicePicker key={f.customer.customer_no} customerNo={f.customer.customer_no}
               selected={f.settlement_docs} onChange={pickInvoices} snapshot={snapshot}
-              collectionId={editing ? Number(id) : null} />
+              collectionId={editing ? Number(id) : replaces} />
           </div>
         )}
 

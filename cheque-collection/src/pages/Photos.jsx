@@ -8,6 +8,16 @@ const safe = (s) => String(s ?? '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/
 const csvCell = (v) => { const s = v == null ? '' : String(v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const endDate = (c) => c.closed_at ?? c.cancelled_at;
 
+// Every stored file belonging to a collection: cheque photos, transfer receipt,
+// its deposit slip (shared with other collections on the slip) or an older single slip.
+function filesOf(c) {
+  const f = c.cheques.map((q) => ({ path: q.photo_path, kind: 'cheque', q }));
+  if (c.receipt_path) f.push({ path: c.receipt_path, kind: 'receipt' });
+  if (c.deposit?.slip_path) f.push({ path: c.deposit.slip_path, kind: 'slip', shared: true });
+  else if (c.deposit_slip_path) f.push({ path: c.deposit_slip_path, kind: 'slip' });
+  return f;
+}
+
 export default function Photos() {
   const [days, setDays] = useState(30);
   const [rows, setRows] = useState(null);
@@ -19,11 +29,11 @@ export default function Photos() {
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from('collections')
-      .select('*, cheques(*), driver:profiles!collections_driver_id_fkey(full_name,email)')
+      .select('*, cheques(*), driver:profiles!collections_driver_id_fkey(full_name,email), deposit:deposits(id, slip_path, deposit_date, reference, collections(id, photos_deleted_at))')
       .in('status', ['closed', 'cancelled']).is('photos_deleted_at', null)
       .order('closed_at', { ascending: true, nullsFirst: false });
     if (error) { setError(error.message); return; }
-    setRows(data.filter((c) => c.cheques.length > 0 || c.deposit_slip_path));
+    setRows(data.filter((c) => filesOf(c).length > 0));
     const l = await supabase.from('backup_log').select('*, by:profiles(full_name,email)').order('done_at', { ascending: false }).limit(10);
     setLog(l.data ?? []);
   }, []);
@@ -31,7 +41,7 @@ export default function Photos() {
 
   const due = useMemo(() => (rows ?? []).filter((c) => daysAgo(endDate(c)) >= days), [rows, days]);
   const chosen = due.filter((c) => picked.has(c.id));
-  const fileCount = (list) => list.reduce((n, c) => n + c.cheques.length + (c.deposit_slip_path ? 1 : 0), 0);
+  const fileCount = (list) => list.reduce((n, c) => n + filesOf(c).length, 0);
   const allBackedUp = chosen.length > 0 && chosen.every((c) => c.backed_up_at);
 
   const toggle = (id) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -42,7 +52,7 @@ export default function Photos() {
     try {
       const zip = new JSZip();
       const used = new Set();
-      const unique = (p) => { let n = p, i = 2; while (used.has(n)) n = p.replace(/\.jpg$/, `_${i++}.jpg`); used.add(n); return n; };
+      const unique = (p) => { let n = p, i = 2; while (used.has(n)) n = p.replace(/(\.\w+)$/, `_${i++}$1`); used.add(n); return n; };
       const lines = [['CC number', 'Customer no', 'Customer', 'Invoice(s)', 'Status', 'Expected LKR', 'Cheque no', 'Bank', 'Cheque date',
         'Cheque LKR', 'Driver', 'Collected on', 'Deposit date', 'Deposit ref', 'Closed/cancelled on', 'File'].join(',')];
       const total = fileCount(chosen);
@@ -59,15 +69,15 @@ export default function Photos() {
       for (const c of chosen) {
         const folder = `${(endDate(c) ?? '').slice(0, 7)}/${safe(c.customer_name)}`;
         const base = [ref(c.id), c.customer_no, c.customer_name, c.invoice_refs, c.status, c.expected_amount];
-        for (const q of c.cheques) {
-          const file = await add(q.photo_path, unique(`${folder}/${ref(c.id)}_chq-${safe(q.cheque_no)}_LKR-${q.amount}.jpg`));
-          lines.push([...base, q.cheque_no, q.bank, q.cheque_date, q.amount, personName(c.driver),
-            c.collected_at?.slice(0, 10), c.deposit_date, c.deposit_reference, endDate(c)?.slice(0, 10), file].map(csvCell).join(','));
-        }
-        if (c.deposit_slip_path) {
-          const file = await add(c.deposit_slip_path, unique(`${folder}/${ref(c.id)}_deposit-slip.jpg`));
-          lines.push([...base, '', '', '', '', personName(c.driver), c.collected_at?.slice(0, 10),
-            c.deposit_date, c.deposit_reference, endDate(c)?.slice(0, 10), file].map(csvCell).join(','));
+        for (const f of filesOf(c)) {
+          const ext = /\.pdf$/i.test(f.path) ? 'pdf' : 'jpg';
+          const name = f.kind === 'cheque' ? `${ref(c.id)}_chq-${safe(f.q.cheque_no)}_LKR-${f.q.amount}.${ext}`
+            : f.kind === 'receipt' ? `${ref(c.id)}_transfer-receipt.${ext}`
+            : `${ref(c.id)}_deposit-slip${c.deposit ? `-D${c.deposit.id}` : ''}.${ext}`;
+          const file = await add(f.path, unique(`${folder}/${name}`));
+          lines.push([...base, f.q?.cheque_no ?? '', f.q?.bank ?? '', f.q?.cheque_date ?? '', f.q?.amount ?? '', personName(c.driver),
+            c.collected_at?.slice(0, 10), c.deposit?.deposit_date ?? c.deposit_date, c.deposit?.reference ?? c.deposit_reference,
+            endDate(c)?.slice(0, 10), file].map(csvCell).join(','));
         }
       }
       zip.file('cheques.csv', '\ufeff' + lines.join('\r\n'));
@@ -95,7 +105,9 @@ export default function Photos() {
     if (!window.confirm(`Permanently delete ${n} photos from ${chosen.length} collection(s)? The cheque details stay. This cannot be undone.`)) return;
     setBusy(true); setError('');
     try {
-      const paths = chosen.flatMap((c) => [...c.cheques.map((q) => q.photo_path), c.deposit_slip_path].filter(Boolean));
+      const ids = new Set(chosen.map((c) => c.id));
+      const paths = [...new Set(chosen.flatMap((c) => filesOf(c).filter((f) => !f.shared
+        || c.deposit.collections.every((x) => ids.has(x.id) || x.photos_deleted_at)).map((f) => f.path)))];
       for (let i = 0; i < paths.length; i += 100) {
         setStatus(`Deleting ${Math.min(i + 100, paths.length)} of ${paths.length}…`);
         const { error } = await supabase.storage.from(BUCKET).remove(paths.slice(i, i + 100));
@@ -113,7 +125,8 @@ export default function Photos() {
     <section>
       <div className="page-head"><h1>Photo storage</h1></div>
       <p className="lede">
-        Cheque and deposit-slip photos of finished collections can be removed to free up space.
+        Cheque photos, deposit slips and transfer receipts of finished items can be removed to free up space.
+        A deposit slip shared by several collections is only deleted once all of them are.
         Download a backup first; deleting is only possible after that. The cheque details always stay.
       </p>
 
@@ -147,7 +160,7 @@ export default function Photos() {
                     <td>{c.customer_name}</td>
                     <td className="num">{lkr(c.collected_amount ?? c.expected_amount)}</td>
                     <td>{fmtDate(endDate(c))}</td>
-                    <td className="num">{c.cheques.length + (c.deposit_slip_path ? 1 : 0)}</td>
+                    <td className="num">{filesOf(c).length}</td>
                     <td>{c.backed_up_at ? fmtDate(c.backed_up_at) : <span className="muted">Not yet</span>}</td>
                   </tr>
                 ))}
