@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { IS_DEMO, switchMode } from '../lib/supabase';
 import Notifications from './Notifications';
 
 const ROLE_LABEL = { sales: 'Sales', driver: 'Driver', finance: 'Finance' };
@@ -22,11 +23,15 @@ export default function Layout() {
   const { profile, role } = useAuth();
   const links = navLinks(role);
   return (
-    <div className="shell">
+    <div className={IS_DEMO ? 'shell is-demo' : 'shell'}>
       <header className="topbar">
         <div className="brand">
           <img src="/icon.svg" alt="" width="28" height="28" />
-          <span>Cheque Collection</span>
+          <span className="brand-name">Cheque Collection</span>
+        </div>
+        <div className="modeswitch" role="group" aria-label="Section">
+          <button className={IS_DEMO ? '' : 'on'} aria-pressed={!IS_DEMO} onClick={() => IS_DEMO && switchMode(false)}>Live</button>
+          <button className={IS_DEMO ? 'on' : ''} aria-pressed={IS_DEMO} onClick={() => !IS_DEMO && switchMode(true)}>Demo</button>
         </div>
         <div className="who">
           <span className="who-name">{profile?.full_name}</span>
@@ -34,6 +39,11 @@ export default function Layout() {
         </div>
         <Notifications />
       </header>
+      {IS_DEMO && (
+        <div className="demo-banner" role="status">
+          <strong>Demo</strong> September 2026 data and practice scenarios. Anything you do here stays in the demo; live is never touched.
+        </div>
+      )}
       <nav className="sidenav" aria-label="Main">
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className={l.main ? 'nav-main' : 'nav-extra'}>{l.label}</NavLink>

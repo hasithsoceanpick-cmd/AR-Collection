@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db } from '../lib/supabase';
 import { lkr, ref, fmtDate, todayISO } from '../lib/format';
 
 // Lists the customer's open ledger entries with checkboxes.
@@ -13,7 +13,7 @@ export default function InvoicePicker({ customerNo, selected, onChange, snapshot
     let live = true;
     setRows(null); setError('');
     Promise.all([
-      supabase.from('customer_ledger').select('*').eq('customer_no', customerNo)
+      db.from('customer_ledger').select('*').eq('customer_no', customerNo)
         .order('posting_date', { ascending: true, nullsFirst: false }).limit(1000),
       rpc('cc_open_settlements', { p_customer_no: customerNo }),
     ]).then(([l, t]) => {
