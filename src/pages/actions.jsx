@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, rpc, uploadPhoto, BUCKET } from '../lib/supabase';
+import { supabase, rpc, uploadPhoto } from '../lib/supabase';
+import BankLinePicker from '../components/BankLinePicker';
 import { lkr, todayISO } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
 
@@ -178,77 +179,6 @@ export function ReceivePanel({ c, onDone }) {
   );
 }
 
-// Step 6 — deposit slip
-export function DepositPanel({ c, onDone }) {
-  const [date, setDate] = useState(todayISO());
-  const [reference, setReference] = useState('');
-  const [slip, setSlip] = useState(null);
-  const { busy, error, run } = useAction(onDone);
-  return (
-    <form className="action" onSubmit={(e) => { e.preventDefault(); run(async () => {
-      if (!slip) throw new Error('Take a photo of the deposit slip first.');
-      const path = await uploadPhoto(c.id, 'deposit-slip', slip);
-      await rpc('cc_deposit', { p_id: c.id, p_date: date, p_reference: reference, p_slip_path: path });
-    }); }}>
-      <h2>Record the deposit</h2>
-      <PhotoInput label="Photo of the deposit slip" value={slip} onChange={setSlip} />
-      <div className="grid2">
-        <label className="field"><span className="flabel">Deposit date</span>
-          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
-        <label className="field"><span className="flabel">Slip or reference number</span>
-          <input value={reference} onChange={(e) => setReference(e.target.value)} />
-        </label>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <button className="btn primary" disabled={busy}>Save deposit</button>
-    </form>
-  );
-}
-
-// Step 7 — finance verifies and closes
-export function ClosePanel({ c, onDone }) {
-  const [note, setNote] = useState('');
-  const [sendBack, setSendBack] = useState(false);
-  const { busy, error, run } = useAction(onDone);
-
-  async function returnIt() {
-    if (!note.trim()) throw new Error('Say what is wrong with the deposit.');
-    const old = c.deposit_slip_path;
-    await rpc('cc_return_deposit', { p_id: c.id, p_note: note });
-    if (old) await supabase.storage.from(BUCKET).remove([old]);
-  }
-
-  return (
-    <div className="action">
-      <h2>{sendBack ? 'Send the deposit back' : 'Verify the deposit'}</h2>
-      <p className="hint">
-        {sendBack ? 'The slip will be removed and the deposit can be recorded again.'
-          : `Check LKR ${lkr(c.collected_amount)} reached the bank, then close the collection.`}
-      </p>
-      <label className="field"><span className="flabel">{sendBack ? 'What is wrong?' : 'Note (optional)'}</span>
-        <textarea rows="2" value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
-      {error && <p className="error">{error}</p>}
-      <div className="row">
-        {sendBack ? (
-          <>
-            <button className="btn danger" disabled={busy} onClick={() => run(returnIt)}>Send back</button>
-            <button className="btn ghost" onClick={() => setSendBack(false)}>Back</button>
-          </>
-        ) : (
-          <>
-            <button className="btn primary" disabled={busy} onClick={() => run(() => rpc('cc_close', { p_id: c.id, p_note: note }))}>
-              Verify and close
-            </button>
-            <button className="btn ghost" onClick={() => setSendBack(true)}>Something's wrong</button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function CancelPanel({ c, onDone }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -266,5 +196,115 @@ export function CancelPanel({ c, onDone }) {
         <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Keep it</button>
       </div>
     </form>
+  );
+}
+
+// Transfers — finance reviews: close, or send back to sales (unlinks the bank line)
+export function TransferReviewPanel({ c, line, onDone }) {
+  const [note, setNote] = useState('');
+  const [back, setBack] = useState(false);
+  const { busy, error, run } = useAction(onDone);
+  const differs = line && c.settlement?.length > 0
+    && Math.abs(Number(line.credit) - c.settlement.reduce((t, s) => t + Number(s.remaining_amount), 0)) >= 0.005;
+  return (
+    <div className="action">
+      <h2>{back ? 'Send back to sales' : 'Review this transfer'}</h2>
+      {!back && <p className="hint">Check the bank line, the receipt and the invoices below, then close it.</p>}
+      {!back && differs && <p className="warn-text">The bank amount differs from the ticked invoices' total. On export, short payments go to the oldest invoices first and any excess stays unapplied.</p>}
+      <label className="field"><span className="flabel">{back ? 'What needs fixing?' : 'Note (optional)'}</span>
+        <textarea rows="2" value={note} onChange={(e) => setNote(e.target.value)} /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        {back ? (
+          <>
+            <button className="btn danger" disabled={busy} onClick={() => run(() => rpc('cc_send_back_transfer', { p_id: c.id, p_reason: note }))}>Send back</button>
+            <button className="btn ghost" onClick={() => setBack(false)}>Back</button>
+          </>
+        ) : (
+          <>
+            <button className="btn primary" disabled={busy} onClick={() => run(() => rpc('cc_close_transfer', { p_id: c.id, p_note: note }))}>Checked, close it</button>
+            <button className="btn ghost" onClick={() => setBack(true)}>Something's wrong</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Transfers — relink after being sent back or reopened
+export function RelinkPanel({ c, onDone }) {
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState(c.account_id ? String(c.account_id) : '');
+  const [line, setLine] = useState(null);
+  const { busy, error, run } = useAction(onDone);
+  useEffect(() => {
+    supabase.from('bank_accounts').select('id, name').eq('active', true).order('name').then(({ data }) => setAccounts(data ?? []));
+  }, []);
+  return (
+    <div className="action">
+      <h2>Link to the right bank line</h2>
+      <label className="field"><span className="flabel">Paid into</span>
+        <select value={accountId} onChange={(e) => { setAccountId(e.target.value); setLine(null); }}>
+          <option value="">Choose the bank account</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select></label>
+      {accountId && <BankLinePicker accountId={Number(accountId)} amount={c.expected_amount} value={line?.id} onChange={setLine} />}
+      {error && <p className="error">{error}</p>}
+      <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc('cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
+        Link and send to finance
+      </button>
+    </div>
+  );
+}
+
+// Finance — reopen a closed item
+export function ReopenPanel({ c, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const { busy, error, run } = useAction(onDone);
+  if (!open) return <button className="btn ghost" onClick={() => setOpen(true)}>Reopen</button>;
+  return (
+    <div className="action cancel-box">
+      <h2>Reopen {c.kind === 'transfer' ? 'this transfer' : 'this collection'}?</h2>
+      <p className="hint">{c.kind === 'transfer'
+        ? 'The bank line is unlinked and the transfer goes back to sales to relink.'
+        : 'Its deposit slip is unlinked from the bank, so every collection on that slip goes back to "Deposited" until the slip is matched again.'}</p>
+      <label className="field"><span className="flabel">Reason</span>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Linked to the wrong bank line" /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="btn danger" disabled={busy} onClick={() => run(() => rpc('cc_reopen', { p_id: c.id, p_reason: reason }))}>Reopen</button>
+        <button className="btn ghost" onClick={() => setOpen(false)}>Keep closed</button>
+      </div>
+    </div>
+  );
+}
+
+// Finance — mark one cheque as returned (bounced)
+export function ReturnChequePanel({ c, cheques, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [chequeId, setChequeId] = useState(cheques.length === 1 ? String(cheques[0].id) : '');
+  const [reason, setReason] = useState('');
+  const { busy, error, run } = useAction(onDone);
+  if (!open) return <button className="btn ghost danger-text" onClick={() => setOpen(true)}>Mark a cheque returned</button>;
+  return (
+    <div className="action cancel-box">
+      <h2>Cheque returned by the bank</h2>
+      <p className="hint">The collection is marked Returned and sales is asked to raise a replacement.</p>
+      {cheques.length > 1 && (
+        <label className="field"><span className="flabel">Which cheque?</span>
+          <select value={chequeId} onChange={(e) => setChequeId(e.target.value)}>
+            <option value="">Choose</option>
+            {cheques.map((q) => <option key={q.id} value={q.id}>No. {q.cheque_no}, LKR {lkr(q.amount)}</option>)}
+          </select></label>
+      )}
+      <label className="field"><span className="flabel">Return reason</span>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Refer to drawer / insufficient funds" /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="btn danger" disabled={busy || !chequeId} onClick={() => run(() => rpc('cc_return_cheque', { p_cheque_id: Number(chequeId), p_reason: reason }))}>Mark returned</button>
+        <button className="btn ghost" onClick={() => setOpen(false)}>Back</button>
+      </div>
+    </div>
   );
 }
