@@ -25,7 +25,7 @@ const LEDGER_COLUMNS = {
   description: ['description'],
   due_date: ['duedate'],
   currency_code: ['currencycode'],
-  original_amount: ['originalamount'],
+  original_amount: ['originalamtlcy', 'originalamountlcy', 'originalamount'],
   remaining_lcy: ['remainingamtlcy', 'remainingamountlcy'],
   remaining: ['remainingamount'],
   open: ['open'],
@@ -141,7 +141,8 @@ export async function parseLedger(file) {
       remaining_amount: remaining,
     });
   }
-  return { rows: out, skippedClosed, customers: new Set(out.map((r) => r.customer_no)).size };
+  return { rows: out, skippedClosed, customers: new Set(out.map((r) => r.customer_no)).size,
+    hasOriginal: h.map.original_amount !== undefined };
 }
 
 // Supabase returns at most 1,000 rows per request; page through larger tables.
