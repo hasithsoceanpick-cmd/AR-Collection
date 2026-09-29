@@ -1,18 +1,28 @@
-/* Cheque Collection — security-paper green, blue-black ink, rubber stamps. */
+/* Round Island / Oceanpick theme — letterhead white, navy ink, orange swirl, sky wave, leaf-green band. */
 :root {
-  --paper: #EEF2EC;
+  /* brand, full strength: bands, markers, pins, logo */
+  --navy: #2E3A87;
+  --orange: #E68A2E;
+  --sky: #3E9FD6;
+  --leaf: #4FA52A;
+  /* text-safe shades of the brand colours */
+  --orange-ink: #B35F0C;
+  --sky-ink: #1D6FA3;
+  --leaf-ink: #347A18;
+
+  --paper: #F6F7F4;
   --surface: #FFFFFF;
-  --ink: #15243A;
-  --muted: #56657A;
-  --rule: #CBD5CE;
-  --guilloche: #D7E3D6;
-  --focus: #1F5FAD;
+  --ink: #1E2A5E;
+  --muted: #5A6377;
+  --rule: #D5D9E0;
+  --guilloche: #E2EDF7;
+  --focus: var(--sky);
   --red: #B3261E;
-  --amber: #8A5300;
-  --blue: #1F5FAD;
+  --amber: var(--orange-ink);
+  --blue: var(--navy);
   --violet: #6B3FA0;
-  --teal: #0E6E6A;
-  --green: #2E6B30;
+  --teal: var(--sky-ink);
+  --green: var(--leaf-ink);
   --grey: #6B7280;
   --radius: 6px;
   --font: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -91,7 +101,7 @@ code { font-size: 0.9em; }
 .note-panel {
   position: absolute; right: 0; top: calc(100% + 0.5rem); width: min(380px, calc(100vw - 2rem));
   max-height: 70vh; overflow-y: auto; background: var(--surface); color: var(--ink);
-  border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(21, 36, 58, 0.18);
+  border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(30, 42, 94, 0.18);
 }
 .note-head { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); }
 .note-panel ul { list-style: none; margin: 0; padding: 0; }
@@ -235,7 +245,7 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
 .progress li.done::before, .progress li.now::before { background: var(--ink); }
 .progress li.done .dot { background: var(--ink); border-color: var(--ink); }
 .progress li.now { color: var(--ink); font-weight: 700; }
-.progress li.now .dot { border-color: var(--ink); box-shadow: 0 0 0 4px rgba(21, 36, 58, 0.15); }
+.progress li.now .dot { border-color: var(--ink); box-shadow: 0 0 0 4px rgba(30, 42, 94, 0.15); }
 @media (max-width: 520px) { .plabel { display: none; } .progress li.now .plabel { display: block; position: absolute; top: 20px; white-space: nowrap; } .progress { padding-bottom: 1.2rem; } }
 
 .action {
@@ -319,7 +329,7 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
   position: absolute; z-index: 1100; left: 0; right: 0; top: calc(100% + 4px);
   max-height: 320px; overflow-y: auto; margin: 0; padding: 0; list-style: none;
   background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius);
-  box-shadow: 0 12px 28px rgba(21, 36, 58, 0.16);
+  box-shadow: 0 12px 28px rgba(30, 42, 94, 0.16);
 }
 .combo-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.6rem 0.8rem; cursor: pointer; }
 .combo-list li + li { border-top: 1px solid #E4EAE5; }
@@ -451,3 +461,55 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
 .stmt-table tr.this-item td:first-child { box-shadow: inset 4px 0 0 #C07A20; }
 .this-tag { display: inline-block; background: #7A3E00; color: #fff; border-radius: 4px; padding: 0 0.4rem; margin-right: 0.4rem; font-size: 0.75rem; }
 .stmt-details summary { cursor: pointer; font-weight: 700; }
+
+/* ---------- Brand: letterhead ---------- */
+body {
+  background: var(--paper) url('/letterhead-bg.svg') no-repeat right bottom fixed;
+  background-size: min(1150px, 100vw) auto;
+}
+.topbar { background: #fff; color: var(--navy); border-bottom: 5px solid var(--leaf); box-shadow: 0 1px 0 rgba(30, 42, 94, 0.06); }
+.brand { gap: 0.6rem; }
+.brand img { display: block; height: 38px; width: auto; }
+.brand-name { font-size: 1.125rem; color: var(--navy); letter-spacing: 0.01em; }
+.brand-name small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--orange-ink); letter-spacing: 0.04em; }
+.who-role { color: var(--muted); opacity: 1; }
+.bell { color: var(--navy); }
+.btn.primary { background: var(--navy); border-color: var(--navy); }
+.btn.primary:hover:not(:disabled) { background: #232D6E; }
+.btn { border-color: var(--navy); color: var(--navy); }
+.btn.danger { color: #fff; }
+.sidenav a.active { color: var(--navy); border-top-color: var(--orange); }
+@media (min-width: 900px) {
+  .sidenav { top: 61px; }
+  .sidenav a.active { border-left-color: var(--orange); background: rgba(255, 255, 255, 0.92); }
+}
+.tab.on { color: var(--navy); }
+.tabs { background: #E7EAF0; }
+.row-link:hover { background: #F4F7FB; }
+.rows, .facts, .table-wrap, .invoices, .linepicker ul, .checklist { background: rgba(255, 255, 255, 0.96); }
+.slip { border-color: #C9D3E3; }
+.slip::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: linear-gradient(90deg, var(--orange) 0 33%, var(--sky) 33% 66%, var(--navy) 66%); }
+.progress li.done .dot, .progress li.now .dot { border-color: var(--navy); }
+.progress li.done .dot { background: var(--navy); }
+.progress li.done::before, .progress li.now::before { background: var(--navy); }
+.note.unread { box-shadow: inset 3px 0 0 var(--orange); }
+.badge { background: var(--orange-ink); }
+.lp-exact, .s-ok b { color: var(--leaf-ink); }
+
+/* Live / Demo on the white header */
+.modeswitch { background: #EEF0F6; }
+.modeswitch button { color: var(--navy); opacity: 0.8; }
+.modeswitch button.on { background: var(--navy); color: #fff; }
+.is-demo .topbar { background: #FFF7EC; border-bottom: 6px solid transparent;
+  border-image: repeating-linear-gradient(135deg, var(--orange) 0 14px, var(--navy) 14px 28px) 6; }
+.is-demo .modeswitch button.on { background: var(--orange-ink); color: #fff; }
+.demo-banner strong { background: var(--orange-ink); }
+@media (min-width: 900px) { .is-demo .sidenav { top: 98px; } }
+
+/* Sign-in card styled as the letterhead */
+.login-card { padding: 2rem 1.5rem 0; overflow: hidden; position: relative; }
+.login-logo { display: block; height: 120px; width: auto; margin: 0 auto 0.5rem; }
+.login-card h1 { text-align: center; color: var(--navy); }
+.lh-band { margin: 1.25rem -1.5rem 0; background: #34781A; color: #fff; text-align: center; padding: 0.7rem 1rem 0.8rem;
+  border-top: 4px solid var(--leaf); font-size: 0.8125rem; line-height: 1.4; }
+.lh-band strong { display: block; font-size: 1rem; }

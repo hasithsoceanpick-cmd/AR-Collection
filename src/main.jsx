@@ -5,7 +5,7 @@ import './styles.css';
 import App from './App';
 import { IS_DEMO } from './lib/supabase';
 
-if (IS_DEMO) document.title = 'DEMO · Cheque Collection';
+if (IS_DEMO) document.title = 'DEMO · Collections · Round Island';
 
 ReactDOM.createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);
 
