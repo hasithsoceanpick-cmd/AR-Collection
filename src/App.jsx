@@ -49,7 +49,7 @@ export default function App() {
   if (!configured) {
     return (
       <div className="login"><div className="login-card">
-        <img className="login-logo" src="/logo.png" alt="Round Island" />
+        <span className="brand-bars big" aria-hidden="true"><i /><i /><i /></span>
         <h1>Almost ready</h1>
         <p>This site isn't connected to Supabase yet. In Netlify, add the environment variables
           <code> VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>, then redeploy.</p>

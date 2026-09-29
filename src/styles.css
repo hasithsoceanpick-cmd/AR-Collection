@@ -469,7 +469,13 @@ body {
 }
 .topbar { background: #fff; color: var(--navy); border-bottom: 5px solid var(--leaf); box-shadow: 0 1px 0 rgba(30, 42, 94, 0.06); }
 .brand { gap: 0.6rem; }
-.brand img { display: block; height: 38px; width: auto; }
+.brand-bars { display: inline-flex; align-items: flex-end; gap: 4px; height: 30px; }
+.brand-bars i { display: block; width: 7px; border-radius: 4px; }
+.brand-bars i:nth-child(1) { height: 60%; background: var(--orange); }
+.brand-bars i:nth-child(2) { height: 100%; background: var(--sky); }
+.brand-bars i:nth-child(3) { height: 45%; background: var(--navy); }
+.brand-bars.big { height: 56px; gap: 7px; margin: 0 auto 0.75rem; display: flex; justify-content: center; }
+.brand-bars.big i { width: 13px; border-radius: 7px; }
 .brand-name { font-size: 1.125rem; color: var(--navy); letter-spacing: 0.01em; }
 .brand-name small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--orange-ink); letter-spacing: 0.04em; }
 .who-role { color: var(--muted); opacity: 1; }
@@ -508,7 +514,6 @@ body {
 
 /* Sign-in card styled as the letterhead */
 .login-card { padding: 2rem 1.5rem 0; overflow: hidden; position: relative; }
-.login-logo { display: block; height: 120px; width: auto; margin: 0 auto 0.5rem; }
 .login-card h1 { text-align: center; color: var(--navy); }
 .lh-band { margin: 1.25rem -1.5rem 0; background: #34781A; color: #fff; text-align: center; padding: 0.7rem 1rem 0.8rem;
   border-top: 4px solid var(--leaf); font-size: 0.8125rem; line-height: 1.4; }
