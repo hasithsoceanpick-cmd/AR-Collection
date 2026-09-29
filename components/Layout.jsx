@@ -26,7 +26,7 @@ export default function Layout() {
     <div className={IS_DEMO ? 'shell is-demo' : 'shell'}>
       <header className="topbar">
         <div className="brand">
-          <img src="/logo-mark.png" alt="Round Island" />
+          <span className="brand-bars" aria-hidden="true"><i /><i /><i /></span>
           <span className="brand-name">Collections<small>Round Island</small></span>
         </div>
         <div className="modeswitch" role="group" aria-label="Section">

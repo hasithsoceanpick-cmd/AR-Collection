@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { fmtDateTime } from '../lib/format';
 
@@ -13,7 +13,7 @@ export default function Notifications() {
   const boxRef = useRef(null);
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('notifications').select('*')
+    const { data } = await db.from('notifications').select('*')
       .order('created_at', { ascending: false }).limit(30);
     setItems(data ?? []);
   }, []);
@@ -22,7 +22,7 @@ export default function Notifications() {
     load();
     const ch = supabase.channel(`notes-${uid}`)
       .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${uid}` },
+        { event: 'INSERT', schema: SCHEMA, table: 'notifications', filter: `user_id=eq.${uid}` },
         () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
