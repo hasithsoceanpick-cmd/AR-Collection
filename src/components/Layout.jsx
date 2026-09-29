@@ -26,8 +26,8 @@ export default function Layout() {
     <div className={IS_DEMO ? 'shell is-demo' : 'shell'}>
       <header className="topbar">
         <div className="brand">
-          <img src="/icon.svg" alt="" width="28" height="28" />
-          <span className="brand-name">Cheque Collection</span>
+          <img src="/logo-mark.png" alt="Round Island" />
+          <span className="brand-name">Collections<small>Round Island</small></span>
         </div>
         <div className="modeswitch" role="group" aria-label="Section">
           <button className={IS_DEMO ? '' : 'on'} aria-pressed={!IS_DEMO} onClick={() => IS_DEMO && switchMode(false)}>Live</button>
