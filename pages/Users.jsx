@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpcLive } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 
 function UserRow({ u, self, onSaved }) {
@@ -12,7 +12,7 @@ function UserRow({ u, self, onSaved }) {
 
   async function save() {
     setBusy(true); setError('');
-    try { await rpc('cc_set_user', { p_user: u.id, p_name: name, p_role: role || null, p_active: active }); await onSaved(); }
+    try { await rpcLive('cc_set_user', { p_user: u.id, p_name: name, p_role: role || null, p_active: active }); await onSaved(); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }

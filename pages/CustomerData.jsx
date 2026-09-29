@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db } from '../lib/supabase';
 import { parseCustomers, parseLedger } from '../lib/bcimport';
 import { fmtDateTime, personName } from '../lib/format';
 
@@ -76,11 +76,11 @@ export default function CustomerData() {
   const [ledgerCustomers, setLedgerCustomers] = useState(0);
 
   const load = useCallback(async () => {
-    const q = (kind) => supabase.from('imports').select('*, by:profiles(full_name,email)')
+    const q = (kind) => db.from('imports').select('*, by:profiles(full_name,email)')
       .eq('kind', kind).order('done_at', { ascending: false }).limit(1).maybeSingle();
     const [c, l] = await Promise.all([q('customers'), q('ledger')]);
     setLast({ customers: c.data, ledger: l.data });
-    const { data } = await supabase.from('customer_ledger').select('customer_no').limit(5000);
+    const { data } = await db.from('customer_ledger').select('customer_no').limit(5000);
     setLedgerCustomers(new Set((data ?? []).map((r) => r.customer_no)).size);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -117,15 +117,20 @@ export default function CustomerData() {
         steps={[
           'Open Customer Ledger Entries in Business Central.',
           'Filter Open = Yes. Don\'t filter by customer: the upload replaces all open invoices.',
-          'Make sure Customer No., Document No. and Remaining Amount are showing (Personalize if not).',
+          'Make sure Customer No., Document No., Original Amount and Remaining Amount are showing (Personalize if not).',
           'Choose Share → Open in Excel and upload that file here.',
         ]}
         parse={parseLedger}
         describe={(p) => `${p.rows.length.toLocaleString()} open entries for ${p.customers.toLocaleString()} customers`
           + (p.skippedClosed ? ` (${p.skippedClosed.toLocaleString()} closed or zero rows ignored).` : '.')}
-        warn={(p) => p.customers <= 2 && ledgerCustomers > 5
-          ? `This file only covers ${p.customers} customer${p.customers === 1 ? '' : 's'}, but the app currently holds open invoices for ${ledgerCustomers}. Uploading replaces them all. Check the export wasn't filtered to one customer.`
-          : ''}
+        warn={(p) => [
+          p.customers <= 2 && ledgerCustomers > 5
+            ? `This file only covers ${p.customers} customer${p.customers === 1 ? '' : 's'}, but the app currently holds open invoices for ${ledgerCustomers}. Uploading replaces them all. Check the export wasn't filtered to one customer.`
+            : '',
+          !p.hasOriginal
+            ? 'This file has no "Original Amount" column. Without it, invoices part-paid in the app may be hidden too early once BC posts the payment. Add the column with Personalize and export again.'
+            : '',
+        ].filter(Boolean).join(' ')}
         upload={(name, p) => rpc('cc_import_ledger', { p_file: name, p_rows: p.rows })}
         onDone={load}
       />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, rpc, uploadMine } from '../lib/supabase';
+import { supabase, rpc, uploadMine, db } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, ref, fmtDate, todayISO, personName } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
@@ -19,7 +19,7 @@ function RecordDeposit({ accounts, onDone }) {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from('collections').select('id, customer_name, collected_amount, collected_at, driver_id, cheques(cheque_no, bank)')
+    const { data } = await db.from('collections').select('id, customer_name, collected_amount, collected_at, driver_id, cheques(cheque_no, bank)')
       .eq('kind', 'cheque').eq('status', 'received').is('deposit_id', null).order('collected_at');
     setItems(data ?? []);
   }, []);
@@ -95,39 +95,44 @@ export default function Deposits() {
 
   const load = useCallback(async () => {
     const [a, d] = await Promise.all([
-      supabase.from('bank_accounts').select('id, name').eq('active', true).order('name'),
-      supabase.from('deposits').select('*, account:bank_accounts(name), creator:profiles!deposits_created_by_fkey(full_name,email), collections(id, customer_name, collected_amount, status)')
+      db.from('bank_accounts').select('id, name').eq('active', true).order('name'),
+      db.from('deposits').select('*, account:bank_accounts(name), creator:profiles!deposits_created_by_fkey(full_name,email), collections(id, customer_name, collected_amount, status)')
         .is('cancelled_at', null).order('created_at', { ascending: false }).limit(100),
     ]);
     setAccounts(a.data ?? []);
     setDeposits(d.data ?? []);
-    const ids = (d.data ?? []).map((x) => x.line_id).filter(Boolean);
+    const ids = (d.data ?? []).filter((x) => x.closed_at).map((x) => x.id);
     if (ids.length) {
-      const { data } = await supabase.from('bank_credits').select('id, txn_date, narration').in('id', ids);
-      setLines(Object.fromEntries((data ?? []).map((l) => [l.id, l])));
+      const { data } = await db.from('bank_credits').select('id, deposit_id, txn_date, narration, credit').in('deposit_id', ids);
+      const m = {};
+      for (const l of data ?? []) (m[l.deposit_id] ??= []).push(l);
+      setLines(m);
     }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const waiting = (deposits ?? []).filter((d) => !d.line_id);
-  const done = (deposits ?? []).filter((d) => d.line_id);
+  const waiting = (deposits ?? []).filter((d) => !d.closed_at);
+  const done = (deposits ?? []).filter((d) => d.closed_at);
 
   const Card = ({ d }) => (
     <div className="facts" id={`d${d.id}`}>
       <div className="page-head">
         <h2>Slip D-{d.id}: LKR {lkr(d.slip_total)}</h2>
-        <span className={d.line_id ? 'stamp tone-green' : 'stamp tone-teal'}>{d.line_id ? 'In bank' : 'Awaiting bank'}</span>
+        <span className={d.closed_at ? 'stamp tone-green' : 'stamp tone-teal'}>{d.closed_at ? 'In bank' : 'Awaiting bank'}</span>
       </div>
       <p className="muted">{d.account?.name}, deposited {fmtDate(d.deposit_date)}{d.reference ? `, ref ${d.reference}` : ''}, recorded by {personName(d.creator)}</p>
       <ul className="plain">
         {d.collections.map((c) => <li key={c.id}><Link to={`/c/${c.id}`}>{ref(c.id)}</Link> {c.customer_name}, LKR {lkr(c.collected_amount)}</li>)}
       </ul>
-      {d.line_id && lines[d.line_id] && <p>Bank line: {fmtDate(lines[d.line_id].txn_date)}, {lines[d.line_id].narration}</p>}
+      {d.closed_at && lines[d.id] && (
+        <ul className="plain">{lines[d.id].map((l) => <li key={l.id}>In the bank {fmtDate(l.txn_date)}: {l.narration}, LKR {lkr(l.credit)}</li>)}</ul>
+      )}
       <div className="row">
-        <button className="link" onClick={() => setOpen(open === d.id ? null : d.id)}>{open === d.id ? 'Hide slip' : 'Show slip photo'}</button>
+        {d.slip_path ? <button className="link" onClick={() => setOpen(open === d.id ? null : d.id)}>{open === d.id ? 'Hide slip' : 'Show slip photo'}</button>
+          : <span className="muted small">No slip photo (imported record)</span>}
       </div>
       {open === d.id && <div className="slip-photo"><SignedImage path={d.slip_path} alt={`Slip D-${d.id}`} /></div>}
-      {role === 'finance' && !d.line_id && <DepositLink deposit={d} onDone={load} />}
+      {role === 'finance' && !d.closed_at && <DepositLink deposit={d} onDone={load} />}
     </div>
   );
 

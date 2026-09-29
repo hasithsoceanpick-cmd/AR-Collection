@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase, rpc, uploadMine } from '../lib/supabase';
+import { supabase, rpc, uploadMine, db } from '../lib/supabase';
 import { fetchAll } from '../lib/bcimport';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import CustomerPicker from '../components/CustomerPicker';
@@ -16,6 +16,9 @@ export default function TransferForm() {
   const [docs, setDocs] = useState([]);
   const [invoiceTotal, setInvoiceTotal] = useState(null);
   const [instructions, setInstructions] = useState('');
+  const [amount, setAmount] = useState('');
+  const [amountTouched, setAmountTouched] = useState(false);
+  const [exact, setExact] = useState(null);
   const [accountId, setAccountId] = useState('');
   const [line, setLine] = useState(null);
   const [receipt, setReceipt] = useState(null);
@@ -26,12 +29,19 @@ export default function TransferForm() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchAll(() => supabase.from('customers').select('customer_no,name').eq('in_latest_list', true).order('name'))
+    fetchAll(() => db.from('customers').select('customer_no,name').eq('in_latest_list', true).order('name'))
       .then(setCustomers).catch(() => setCustomers([]));
     rpc('cc_statement_freshness').then(setFresh).catch(() => setFresh([]));
   }, []);
 
   const acct = fresh.find((a) => String(a.account_id) === String(accountId));
+  const amountNum = Math.round((Number(String(amount).replace(/,/g, '')) || 0) * 100) / 100;
+
+  // Look for bank lines only once the typed amount settles.
+  useEffect(() => {
+    const t = setTimeout(() => { setExact(amountNum > 0 ? amountNum : null); setLine(null); }, 400);
+    return () => clearTimeout(t);
+  }, [amountNum]);
 
   async function save(e) {
     e.preventDefault();
@@ -45,17 +55,16 @@ export default function TransferForm() {
       const id = await rpc('cc_create_transfer', { p: {
         customer_no: customer.customer_no, customer_name: customer.name, settlement_docs: docs,
         settlement_instructions: instructions, account_id: Number(accountId), line_id: line.id,
-        receipt_path: path, no_receipt_reason: path ? null : reason, notes } });
+        amount: amountNum, receipt_path: path, no_receipt_reason: path ? null : reason, notes } });
       nav(`/c/${id}`);
     } catch (err) { setError(err.message); setBusy(false); }
   }
 
-  const differs = line && invoiceTotal != null && Math.abs(Number(line.credit) - invoiceTotal) >= 0.005;
 
   return (
     <section className="narrow">
       <div className="page-head"><h1>Record a bank transfer</h1></div>
-      <p className="lede">The transfer must already be on the bank statement in the app. Pick the customer and invoices, then the bank line it came in as.</p>
+      <p className="lede">The transfer must already be on the bank statement in the app. Pick the customer and invoices, type the amount that arrived, then pick its bank line.</p>
 
       <form onSubmit={save} className="stack">
         <div className="field"><span className="flabel">Customer</span>
@@ -65,12 +74,26 @@ export default function TransferForm() {
         {customer?.customer_no && (
           <div className="field"><span className="flabel">Invoices being settled</span>
             <InvoicePicker key={customer.customer_no} customerNo={customer.customer_no} selected={docs}
-              onChange={(d, t) => { setDocs(d); setInvoiceTotal(d.length ? t : null); }} />
+              onChange={(d, t) => { setDocs(d); setInvoiceTotal(d.length ? t : null); if (!amountTouched && d.length) setAmount(t.toFixed(2)); }} />
           </div>
         )}
         {customer && (
           <label className="field"><span className="flabel">Settlement instructions{docs.length ? ' (optional)' : ''}</span>
             <textarea rows="2" value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="E.g. settle oldest first, or advance" />
+          </label>
+        )}
+
+        {customer && (
+          <label className="field"><span className="flabel">Transfer amount (LKR)</span>
+            <input required inputMode="decimal" value={amount} placeholder="Exactly as it arrived in the bank"
+              onChange={(e) => { setAmountTouched(true); setAmount(e.target.value); }} />
+            {invoiceTotal != null && amountNum > 0 && Math.abs(amountNum - invoiceTotal) >= 0.005 && (
+              <span className="warn-text">
+                {amountNum < invoiceTotal
+                  ? `LKR ${lkr(invoiceTotal - amountNum)} less than the ticked invoices: it will settle the oldest invoices first.`
+                  : `LKR ${lkr(amountNum - invoiceTotal)} more than the ticked invoices: the excess stays unapplied on the customer.`}
+              </span>
+            )}
           </label>
         )}
 
@@ -84,13 +107,12 @@ export default function TransferForm() {
             {' '}If today's transfer isn't listed, wait for finance's next upload.</span>}
         </label>
 
-        {accountId && (
-          <div className="field"><span className="flabel">The bank line</span>
-            <BankLinePicker accountId={Number(accountId)} amount={invoiceTotal} value={line?.id} onChange={setLine} />
-            {line && <span className="hint">Amount recorded: LKR {lkr(line.credit)}, taken from the bank line.</span>}
-            {differs && <span className="warn-text">The bank line is LKR {lkr(line.credit)} and the ticked invoices total LKR {lkr(invoiceTotal)}. Finance will see this at review.</span>}
+        {accountId && exact != null && (
+          <div className="field"><span className="flabel">The bank line (LKR {lkr(exact)} only)</span>
+            <BankLinePicker accountId={Number(accountId)} exact={exact} value={line?.id} onChange={setLine} />
           </div>
         )}
+        {accountId && exact == null && <p className="hint">Enter the transfer amount to see the matching bank lines.</p>}
 
         {!noReceipt && <ReceiptInput label="Receipt (photo or PDF)" value={receipt} onChange={setReceipt} />}
         <label className="check"><input type="checkbox" checked={noReceipt} onChange={(e) => { setNoReceipt(e.target.checked); if (e.target.checked) setReceipt(null); }} /> No receipt available</label>

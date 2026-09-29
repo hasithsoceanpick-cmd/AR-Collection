@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import JSZip from 'jszip';
-import { supabase, rpc, BUCKET } from '../lib/supabase';
+import { supabase, rpc, BUCKET, db } from '../lib/supabase';
 import { lkr, ref, fmtDate, daysAgo, personName } from '../lib/format';
 
 const safe = (s) => String(s ?? '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 60) || 'unnamed';
@@ -15,7 +15,7 @@ function filesOf(c) {
   if (c.receipt_path) f.push({ path: c.receipt_path, kind: 'receipt' });
   if (c.deposit?.slip_path) f.push({ path: c.deposit.slip_path, kind: 'slip', shared: true });
   else if (c.deposit_slip_path) f.push({ path: c.deposit_slip_path, kind: 'slip' });
-  return f;
+  return f.filter((x) => x.path);
 }
 
 export default function Photos() {
@@ -28,13 +28,13 @@ export default function Photos() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from('collections')
+    const { data, error } = await db.from('collections')
       .select('*, cheques(*), driver:profiles!collections_driver_id_fkey(full_name,email), deposit:deposits(id, slip_path, deposit_date, reference, collections(id, photos_deleted_at))')
       .in('status', ['closed', 'cancelled']).is('photos_deleted_at', null)
       .order('closed_at', { ascending: true, nullsFirst: false });
     if (error) { setError(error.message); return; }
     setRows(data.filter((c) => filesOf(c).length > 0));
-    const l = await supabase.from('backup_log').select('*, by:profiles(full_name,email)').order('done_at', { ascending: false }).limit(10);
+    const l = await db.from('backup_log').select('*, by:profiles(full_name,email)').order('done_at', { ascending: false }).limit(10);
     setLog(l.data ?? []);
   }, []);
   useEffect(() => { load(); }, [load]);

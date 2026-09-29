@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
-import { supabase, rpc } from '../lib/supabase';
+import { supabase, rpc, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { STATUS, TAGS, KIND_LABEL } from '../lib/workflow';
 import { lkr, ref, fmtDate, todayISO, daysAgo } from '../lib/format';
 import { TILE_URL, TILE_ATTR } from '../components/MapPicker';
 import StatusStamp from '../components/StatusStamp';
 
-const MAP_COLORS = { submitted: '#8A5300', assigned: '#1F5FAD', collected: '#6B3FA0' };
+const MAP_COLORS = { submitted: '#E68A2E', assigned: '#2E3A87', collected: '#3E9FD6' };
 const MAP_LABELS = { submitted: 'Waiting for a driver', assigned: 'Assigned', collected: 'Collected, still with the driver' };
 
 function FitAll({ points }) {
@@ -30,7 +30,7 @@ function MapReport() {
   const load = useCallback(() => rpc('cc_report_map').then(setRows).catch(() => setRows([])), []);
   useEffect(() => {
     load();
-    const ch = supabase.channel('report-map').on('postgres_changes', { event: '*', schema: 'public', table: 'collections' }, load).subscribe();
+    const ch = supabase.channel('report-map').on('postgres_changes', { event: '*', schema: SCHEMA, table: 'collections' }, load).subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [load]);
 
@@ -108,7 +108,7 @@ function Reconciliation() {
 
   const load = useCallback(async () => {
     const [l, d, o] = await Promise.all([
-      supabase.from('bank_credits').select('*').is('link_kind', null).order('txn_date').limit(1000),
+      db.from('bank_credits').select('*').is('link_kind', null).order('txn_date').limit(1000),
       rpc('cc_report_unlinked_deposits'),
       rpc('cc_report_open'),
     ]);
