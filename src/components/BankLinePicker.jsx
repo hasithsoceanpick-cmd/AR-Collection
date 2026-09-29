@@ -5,7 +5,7 @@ import { lkr, fmtDate } from '../lib/format';
 // Pick unlinked bank credit line(s).
 //  single:   value = line id,        onChange(line)
 //  multiple: value = [line ids],     onChange([lines]); `suggest(lines)` may return ids to pre-select.
-export default function BankLinePicker({ accountId, amount = null, value, onChange, multiple = false, suggest = null, showAccount = false }) {
+export default function BankLinePicker({ accountId, amount = null, exact = null, value, onChange, multiple = false, suggest = null, showAccount = false }) {
   const [lines, setLines] = useState(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
@@ -15,6 +15,7 @@ export default function BankLinePicker({ accountId, amount = null, value, onChan
     setLines(null);
     let query = db.from('bank_credits').select('*').is('link_kind', null).order('txn_date', { ascending: false }).limit(500);
     if (accountId) query = query.eq('account_id', accountId);
+    if (exact != null) query = query.eq('credit', Number(exact));
     query.then(({ data, error }) => {
       if (!live) return;
       if (error) { setError(error.message); return; }
@@ -26,7 +27,7 @@ export default function BankLinePicker({ accountId, amount = null, value, onChan
     });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
+  }, [accountId, exact]);
 
   const chosen = multiple ? new Set(value ?? []) : new Set(value ? [value] : []);
   const shown = useMemo(() => {
@@ -48,7 +49,9 @@ export default function BankLinePicker({ accountId, amount = null, value, onChan
 
   if (error) return <p className="error">{error}</p>;
   if (lines === null) return <p className="muted">Loading bank lines…</p>;
-  if (lines.length === 0) return (
+  if (lines.length === 0) return exact != null ? (
+    <p className="warn-text">No unlinked LKR {lkr(exact)} line{accountId ? ' on this account' : ''} yet. Check the amount, or wait for the next statement upload.</p>
+  ) : (
     <p className="hint">No unlinked money-in lines{accountId ? ' on this account' : ''}. If the payment is recent, finance may need to upload the latest statement.</p>
   );
 

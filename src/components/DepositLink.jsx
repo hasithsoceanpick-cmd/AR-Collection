@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { db, rpc } from '../lib/supabase';
 import { lkr } from '../lib/format';
 import BankLinePicker from './BankLinePicker';
+import StatementView from './StatementView';
 
 const digits = (s) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
 
@@ -78,6 +79,7 @@ export default function DepositLink({ deposit, onDone }) {
         </button>
         <button className="btn ghost" onClick={() => setBack(true)}>Something's wrong</button>
       </div>
+      <StatementView accountId={deposit.account_id} highlightIds={picked.map((l) => l.id)} focusDate={deposit.deposit_date} />
     </div>
   );
 }
