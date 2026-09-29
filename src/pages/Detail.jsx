@@ -8,6 +8,7 @@ import Progress from '../components/Progress';
 import MapView, { directionsUrl } from '../components/MapView';
 import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
+import StatementView from '../components/StatementView';
 import {
   AssignPanel, CollectPanel, ReceivePanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
 } from './actions';
@@ -240,6 +241,15 @@ export default function Detail() {
           <h2>Earlier deposit slip</h2>
           <div className="slip-photo">{photosGone ? <div className="img-missing">Photo deleted after backup</div> : <SignedImage path={c.deposit_slip_path} alt="Deposit slip" />}</div>
         </div>
+      )}
+
+      {isFinance && ((isTransfer && c.line_id && c.status !== 'review') || (deposit?.closed_at && depLines.length > 0)) && (
+        <details className="facts stmt-details">
+          <summary>Show on the bank statement</summary>
+          <StatementView accountId={isTransfer ? c.account_id : deposit.account_id}
+            highlightIds={isTransfer ? [c.line_id] : depLines.map((l) => l.id)}
+            focusDate={isTransfer ? line?.txn_date : depLines[0]?.txn_date} />
+        </details>
       )}
 
       <div className="facts">

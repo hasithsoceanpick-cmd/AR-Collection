@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, rpc, uploadPhoto, db } from '../lib/supabase';
 import BankLinePicker from '../components/BankLinePicker';
+import StatementView from '../components/StatementView';
 import { lkr, todayISO } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
 
@@ -204,13 +205,13 @@ export function TransferReviewPanel({ c, line, onDone }) {
   const [note, setNote] = useState('');
   const [back, setBack] = useState(false);
   const { busy, error, run } = useAction(onDone);
-  const differs = line && c.settlement?.length > 0
-    && Math.abs(Number(line.credit) - c.settlement.reduce((t, s) => t + Number(s.remaining_amount), 0)) >= 0.005;
+  const invTotal = c.settlement?.length ? c.settlement.reduce((t, s) => t + Number(s.remaining_amount), 0) : null;
+  const differs = line && invTotal != null && Math.abs(Number(line.credit) - invTotal) >= 0.005;
   return (
     <div className="action">
       <h2>{back ? 'Send back to sales' : 'Review this transfer'}</h2>
       {!back && <p className="hint">Check the bank line, the receipt and the invoices below, then close it.</p>}
-      {!back && differs && <p className="warn-text">The bank amount differs from the ticked invoices' total. On export, short payments go to the oldest invoices first and any excess stays unapplied.</p>}
+      {!back && differs && <p className="warn-text">Transfer LKR {lkr(line.credit)} vs invoices LKR {lkr(invTotal)}: {Number(line.credit) < invTotal ? 'short payment, settles the oldest invoices first' : 'overpayment, the excess stays unapplied'}.</p>}
       <label className="field"><span className="flabel">{back ? 'What needs fixing?' : 'Note (optional)'}</span>
         <textarea rows="2" value={note} onChange={(e) => setNote(e.target.value)} /></label>
       {error && <p className="error">{error}</p>}
@@ -227,6 +228,7 @@ export function TransferReviewPanel({ c, line, onDone }) {
           </>
         )}
       </div>
+      {!back && c.account_id && <StatementView accountId={c.account_id} highlightIds={c.line_id ? [c.line_id] : []} focusDate={line?.txn_date} />}
     </div>
   );
 }
@@ -248,7 +250,7 @@ export function RelinkPanel({ c, onDone }) {
           <option value="">Choose the bank account</option>
           {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></label>
-      {accountId && <BankLinePicker accountId={Number(accountId)} amount={c.expected_amount} value={line?.id} onChange={setLine} />}
+      {accountId && <BankLinePicker accountId={Number(accountId)} exact={c.expected_amount} value={line?.id} onChange={setLine} />}
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc('cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
         Link and send to finance

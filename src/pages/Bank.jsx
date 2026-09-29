@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, rpc, db } from '../lib/supabase';
 import { readRows, findHeaderRow, headerCells, suggestMapping, parseStatement } from '../lib/statement';
 import { lkr, fmtDate, fmtDateTime, ref as ccRef, personName } from '../lib/format';
-import { TAGS } from '../lib/workflow';
+import StatementView from '../components/StatementView';
 
 const FIELDS = [
   { key: 'date', label: 'Transaction date', required: true },
@@ -232,78 +232,17 @@ function AccountForm({ initial, onSaved, onClose }) {
   );
 }
 
-// ---------- Lines ----------
-function LinesBrowser({ accounts }) {
+// ---------- Statement ----------
+function Statements({ accounts }) {
   const [accountId, setAccountId] = useState('');
-  const [filter, setFilter] = useState('open');
-  const [lines, setLines] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    if (!accountId) { setLines([]); return; }
-    let q = db.from('statement_lines').select('*').eq('account_id', accountId).order('txn_date', { ascending: false }).order('id').limit(1000);
-    if (filter === 'open') q = q.gt('credit', 0).is('link_kind', null);
-    if (filter === 'credits') q = q.gt('credit', 0);
-    if (filter === 'debits') q = q.gt('debit', 0);
-    const { data, error } = await q;
-    if (error) setError(error.message); else setLines(data);
-  }, [accountId, filter]);
-  useEffect(() => { load(); }, [load]);
-
-  async function tag(l, t) {
-    let note = null;
-    if (t === 'other') { note = window.prompt('What is this line? (e.g. loan, refund)'); if (!note) return; }
-    setBusy(true); setError('');
-    try { await rpc('cc_tag_line', { p_line_id: l.id, p_tag: t, p_note: note }); await load(); }
-    catch (err) { setError(err.message); } finally { setBusy(false); }
-  }
-  async function untag(l) {
-    setBusy(true);
-    try { await rpc('cc_untag_line', { p_line_id: l.id }); await load(); } catch (err) { setError(err.message); } finally { setBusy(false); }
-  }
-
   return (
     <div className="facts">
-      <h2>Statement lines</h2>
-      <div className="list-tools">
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Account">
-          <option value="">Choose an account</option>
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-        <div className="tabs" role="tablist">
-          {[['open', 'Unlinked money in'], ['credits', 'All money in'], ['debits', 'Money out'], ['all', 'All']].map(([k, l]) => (
-            <button key={k} role="tab" aria-selected={filter === k} className={filter === k ? 'tab on' : 'tab'} onClick={() => setFilter(k)}>{l}</button>
-          ))}
-        </div>
-      </div>
-      {error && <p className="error">{error}</p>}
-      {accountId && lines.length === 0 && <p className="muted">Nothing here.</p>}
-      {lines.length > 0 && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">Out</th><th className="num">In</th><th>Linked to</th></tr></thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={l.id}>
-                  <td>{fmtDate(l.txn_date)}</td><td>{l.narration}</td><td>{l.reference}</td>
-                  <td className="num">{l.debit > 0 ? lkr(l.debit) : ''}</td><td className="num">{l.credit > 0 ? lkr(l.credit) : ''}</td>
-                  <td>
-                    {l.link_kind === 'deposit' && <Link to={`/deposits#d${l.deposit_id}`}>Slip D-{l.deposit_id}</Link>}
-                    {l.link_kind === 'transfer' && <Link to={`/c/${l.collection_id}`}>{ccRef(l.collection_id)}</Link>}
-                    {l.link_kind === 'tag' && <>{TAGS[l.tag]}{l.tag_note ? `: ${l.tag_note}` : ''} <button className="link" disabled={busy} onClick={() => untag(l)}>undo</button></>}
-                    {!l.link_kind && l.credit > 0 && (
-                      <span className="tag-btns">
-                        {Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l, k)}>{v}</button>)}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <h2>Statements</h2>
+      <select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Account">
+        <option value="">Choose an account</option>
+        {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+      </select>
+      {accountId && <StatementView key={accountId} accountId={Number(accountId)} allowTag />}
     </div>
   );
 }
@@ -370,7 +309,7 @@ export default function Bank() {
         )}
       </div>
 
-      <LinesBrowser accounts={accounts} />
+      <Statements accounts={accounts} />
     </section>
   );
 }
