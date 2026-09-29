@@ -6,6 +6,7 @@ export default function NoAccess() {
   return (
     <div className="login">
       <div className="login-card">
+        <img className="login-logo" src="/logo.png" alt="Round Island" />
         <h1>{inactive ? 'Access switched off' : 'Almost there'}</h1>
         <p>
           {inactive
@@ -16,6 +17,7 @@ export default function NoAccess() {
           <button className="btn primary" onClick={reloadProfile}>Check again</button>
           <button className="btn ghost" onClick={signOut}>Sign out</button>
         </div>
+        <div className="lh-band"><strong>Oceanpick Private Limited</strong>No 532/4F, Sirikotha Lane, Colombo 03, Sri Lanka · +94 112 689 099</div>
       </div>
     </div>
   );

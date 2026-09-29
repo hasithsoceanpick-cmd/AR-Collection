@@ -8,7 +8,7 @@ import { lkr, ref, fmtDate, todayISO, daysAgo } from '../lib/format';
 import { TILE_URL, TILE_ATTR } from '../components/MapPicker';
 import StatusStamp from '../components/StatusStamp';
 
-const MAP_COLORS = { submitted: '#8A5300', assigned: '#1F5FAD', collected: '#6B3FA0' };
+const MAP_COLORS = { submitted: '#E68A2E', assigned: '#2E3A87', collected: '#3E9FD6' };
 const MAP_LABELS = { submitted: 'Waiting for a driver', assigned: 'Assigned', collected: 'Collected, still with the driver' };
 
 function FitAll({ points }) {

@@ -32,8 +32,8 @@ export default function Login() {
   return (
     <div className="login">
       <div className="login-card">
-        <img src="/icon.svg" alt="" width="48" height="48" />
-        <h1>Cheque Collection</h1>
+        <img className="login-logo" src="/logo.png" alt="Round Island" />
+        <h1>Collections</h1>
         {sent ? (
           <p>Check <strong>{email}</strong> for a sign-in link. Open it on this device.</p>
         ) : (
@@ -51,6 +51,7 @@ export default function Login() {
             </button>
           </form>
         )}
+        <div className="lh-band"><strong>Oceanpick Private Limited</strong>No 532/4F, Sirikotha Lane, Colombo 03, Sri Lanka · +94 112 689 099</div>
       </div>
     </div>
   );
