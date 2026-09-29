@@ -431,3 +431,23 @@ input[type=checkbox] { width: 1.2rem; height: 1.2rem; accent-color: var(--ink); 
 .practice-notice { background: #FFF1DA; border-left-color: #C07A20; }
 @media (max-width: 520px) { .brand-name { display: none; } .who { display: none; } }
 @media (min-width: 900px) { .is-demo .sidenav { top: 92px; } }
+
+/* ---------- Statement view (finance) ---------- */
+.stmt { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.stmt-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.stmt-head select { width: auto; min-width: 12rem; }
+.stmt-sum { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+.stmt-sum .s-ok b { color: var(--green); }
+.stmt-sum .s-warn b { color: var(--red); }
+.stmt-sum .s-this { color: #7A3E00; font-weight: 700; }
+.stmt-table { max-height: 460px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); }
+.stmt-table .table th { position: sticky; top: 0; z-index: 1; }
+.stmt-table .table td { font-size: 0.875rem; padding: 0.4rem 0.6rem; white-space: nowrap; }
+.stmt-table td.narr { white-space: normal; min-width: 14rem; max-width: 26rem; overflow-wrap: anywhere; }
+.stmt-table td.st { white-space: normal; min-width: 11rem; }
+.stmt-table tr.out td { color: var(--muted); }
+.stmt-table tr.unid td:nth-child(5) { color: var(--red); font-weight: 700; }
+.stmt-table tr.this-item td { background: #FFE8C2; font-weight: 700; }
+.stmt-table tr.this-item td:first-child { box-shadow: inset 4px 0 0 #C07A20; }
+.this-tag { display: inline-block; background: #7A3E00; color: #fff; border-radius: 4px; padding: 0 0.4rem; margin-right: 0.4rem; font-size: 0.75rem; }
+.stmt-details summary { cursor: pointer; font-weight: 700; }
