@@ -29,7 +29,7 @@ export default function Photos() {
 
   const load = useCallback(async () => {
     const { data, error } = await db.from('collections')
-      .select('*, cheques(*), driver:profiles!collections_driver_id_fkey(full_name,email), deposit:deposits(id, slip_path, deposit_date, reference, collections(id, photos_deleted_at))')
+      .select('*, cheques!cheques_collection_id_fkey(*), driver:profiles!collections_driver_id_fkey(full_name,email), deposit:deposits(id, slip_path, deposit_date, reference, collections(id, photos_deleted_at))')
       .in('status', ['closed', 'cancelled']).is('photos_deleted_at', null)
       .order('closed_at', { ascending: true, nullsFirst: false });
     if (error) { setError(error.message); return; }

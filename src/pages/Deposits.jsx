@@ -18,9 +18,11 @@ function RecordDeposit({ accounts, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const [loadError, setLoadError] = useState('');
   const load = useCallback(async () => {
-    const { data } = await db.from('collections').select('id, customer_name, collected_amount, collected_at, driver_id, cheques(cheque_no, bank)')
+    const { data, error } = await db.from('collections').select('id, customer_name, collected_amount, collected_at, driver_id, cheques!cheques_collection_id_fkey(cheque_no, bank)')
       .eq('kind', 'cheque').eq('status', 'received').is('deposit_id', null).order('collected_at');
+    setLoadError(error ? error.message : '');
     setItems(data ?? []);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -44,6 +46,7 @@ function RecordDeposit({ accounts, onDone }) {
   }
 
   if (items === null) return <p className="muted">Loading…</p>;
+  if (loadError) return <div className="facts"><h2>Record a deposit</h2><p className="error">Couldn't load the cheques waiting to be deposited: {loadError}</p></div>;
   if (items.length === 0) return <div className="facts"><h2>Record a deposit</h2><p className="muted">No cheques are waiting to be deposited.</p></div>;
 
   return (
@@ -92,6 +95,7 @@ export default function Deposits() {
   const [deposits, setDeposits] = useState(null);
   const [lines, setLines] = useState({});
   const [open, setOpen] = useState(null);
+  const [listError, setListError] = useState('');
 
   const load = useCallback(async () => {
     const [a, d] = await Promise.all([
@@ -100,6 +104,7 @@ export default function Deposits() {
         .is('cancelled_at', null).order('created_at', { ascending: false }).limit(100),
     ]);
     setAccounts(a.data ?? []);
+    setListError(a.error?.message || d.error?.message || '');
     setDeposits(d.data ?? []);
     const ids = (d.data ?? []).filter((x) => x.closed_at).map((x) => x.id);
     if (ids.length) {
@@ -139,6 +144,7 @@ export default function Deposits() {
   return (
     <section>
       <div className="page-head"><h1>Deposits</h1></div>
+      {listError && <p className="error">Couldn't load deposits: {listError}</p>}
       {(role === 'driver' || role === 'finance') && <RecordDeposit accounts={accounts} onDone={load} />}
       <h2 className="section-title">Awaiting the bank ({waiting.length})</h2>
       {deposits === null ? <p className="muted">Loading…</p> : waiting.length === 0 ? <p className="muted">None.</p> : waiting.map((d) => <Card key={d.id} d={d} />)}

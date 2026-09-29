@@ -24,6 +24,7 @@ export default function Detail() {
   const [line, setLine] = useState(null);
   const [depLines, setDepLines] = useState([]);
   const [replacement, setReplacement] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
     const [a, b, e] = await Promise.all([
@@ -32,6 +33,7 @@ export default function Detail() {
       db.from('events').select('*, actor:profiles(full_name,email)').eq('collection_id', id).order('id'),
     ]);
     const col = a.data ?? null;
+    setLoadError(a.error?.message || b.error?.message || e.error?.message || '');
     setC(col); setCheques(b.data ?? []); setEvents(e.data ?? []);
     if (!col) return;
     let lineId = col.kind === 'transfer' ? col.line_id : null;
@@ -61,6 +63,7 @@ export default function Detail() {
   }, [id, load]);
 
   if (c === undefined) return <p className="muted">Loading…</p>;
+  if (loadError) return <div className="empty"><p className="error">Couldn't load this item: {loadError}</p><Link to="/">Back to collections</Link></div>;
   if (c === null) return (
     <div className="empty"><p>This item doesn't exist or isn't shared with you.</p><Link to="/">Back to collections</Link></div>
   );
