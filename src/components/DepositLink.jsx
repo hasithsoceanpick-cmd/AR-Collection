@@ -17,8 +17,8 @@ export default function DepositLink({ deposit, onDone }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    db.from('collections').select('id, cheques(cheque_no, amount)').eq('deposit_id', deposit.id)
-      .then(({ data }) => setCheques((data ?? []).flatMap((c) => c.cheques)));
+    db.from('collections').select('id, cheques!cheques_collection_id_fkey(cheque_no, amount)').eq('deposit_id', deposit.id)
+      .then(({ data, error: e }) => { if (e) setError(`Couldn't load the slip's cheques: ${e.message}`); setCheques((data ?? []).flatMap((c) => c.cheques)); });
   }, [deposit.id]);
 
   // Pre-select: a line carrying each cheque's number, else one with its exact amount,
