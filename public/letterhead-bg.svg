@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" preserveAspectRatio="xMaxYMax meet">
+  <!-- Letterhead blades: grey and sage sweeps rising from bottom-left to top-right -->
+  <g fill="#C9CED6" fill-opacity=".42">
+    <path d="M30 1000 C250 770 520 560 1000 230 C600 500 330 730 80 1000 Z"/>
+    <path d="M470 700 C640 575 790 490 1000 420 C800 525 640 620 505 725 Z"/>
+    <path d="M610 905 C720 805 830 725 960 660 C845 745 740 830 650 925 Z"/>
+    <path d="M880 700 C905 620 940 560 990 520 C965 580 935 650 915 735 Z"/>
+  </g>
+  <g fill="#BFD69A" fill-opacity=".5">
+    <path d="M160 1000 C390 820 650 665 940 560 C680 705 430 855 215 1000 Z"/>
+    <path d="M175 905 C260 805 345 745 430 705 C355 770 285 835 215 915 Z"/>
+    <path d="M345 965 C385 865 465 795 575 745 C490 815 425 885 390 965 Z"/>
+    <path d="M770 575 C860 505 930 440 1000 345 C955 450 880 525 800 590 Z"/>
+    <path d="M845 790 C885 725 930 675 985 640 C955 700 915 750 875 805 Z"/>
+  </g>
+</svg>
