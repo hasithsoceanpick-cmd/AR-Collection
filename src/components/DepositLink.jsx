@@ -11,6 +11,7 @@ const digits = (s) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
 export default function DepositLink({ deposit, onDone }) {
   const [cheques, setCheques] = useState(null);
   const [picked, setPicked] = useState([]);
+  const [showAll, setShowAll] = useState(false);
   const [back, setBack] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,8 +66,18 @@ export default function DepositLink({ deposit, onDone }) {
       <h2>Match slip D-{deposit.id} to the bank</h2>
       <p className="hint">Tick the money-in line(s) for this slip. Banks often show each cheque as its own line; lines carrying the cheque numbers are ticked for you. Every collection on the slip closes when you confirm.</p>
       {cheques === null ? <p className="muted">Loading…</p> : (
-        <BankLinePicker multiple accountId={deposit.account_id} amount={cheques.length === 1 ? deposit.slip_total : null}
-          value={picked.map((l) => l.id)} onChange={setPicked} suggest={suggest} />
+        <>
+          <p className="hint">
+            {showAll ? 'Showing every unlinked money-in line on this account.'
+              : `Showing only lines of exactly LKR ${[...new Set([Number(deposit.slip_total), ...cheques.map((q) => Number(q.amount))])].map((a) => lkr(a)).join(', ')} (the slip total or one of its cheques).`}{' '}
+            <button type="button" className="link" onClick={() => { setShowAll((v) => !v); setPicked([]); }}>
+              {showAll ? 'Show exact amounts only' : "Bank combined some cheques? Show all lines"}
+            </button>
+          </p>
+          <BankLinePicker key={showAll ? 'all' : 'exact'} multiple accountId={deposit.account_id}
+            amounts={showAll ? null : [...new Set([Number(deposit.slip_total), ...cheques.map((q) => Number(q.amount))])]}
+            value={picked.map((l) => l.id)} onChange={setPicked} suggest={suggest} />
+        </>
       )}
       <div className={ok ? 'total ok' : 'total warn'}>
         <span>Ticked: LKR {lkr(total)} of LKR {lkr(deposit.slip_total)}</span>
