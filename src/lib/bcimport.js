@@ -12,6 +12,9 @@ const CUSTOMER_COLUMNS = {
   city: ['city'],
   phone: ['phoneno', 'phone', 'mobilephoneno'],
   contact: ['contact', 'contactname'],
+  customer_group: ['customerpostinggroup'],
+  payment_terms: ['paymenttermscode'],
+  currency_code: ['currencycode'],
 };
 const CUSTOMER_REQUIRED = { customer_no: 'No.', name: 'Name' };
 
@@ -103,6 +106,9 @@ export async function parseCustomers(file) {
       city: toText(get(row, 'city')),
       phone: toText(get(row, 'phone')),
       contact: toText(get(row, 'contact')),
+      customer_group: toText(get(row, 'customer_group')),
+      payment_terms: toText(get(row, 'payment_terms')),
+      currency_code: toText(get(row, 'currency_code')),
     });
   }
   if (!out.length) throw new Error('The file has the right columns but no customers in it.');

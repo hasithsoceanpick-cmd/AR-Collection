@@ -21,10 +21,10 @@ function FitAll({ points }) {
 }
 
 function MapReport() {
-  const { role, session } = useAuth();
+  const { role, session, isAdmin } = useAuth();
   const [rows, setRows] = useState(null);
   const [show, setShow] = useState({ submitted: true, assigned: true, collected: true });
-  const [driver, setDriver] = useState(role === 'driver' ? session.user.id : '');
+  const [driver, setDriver] = useState(role === 'driver' && !isAdmin ? session.user.id : '');
   const [when, setWhen] = useState(role === 'driver' ? 'today' : 'all');
 
   const [err, setErr] = useState('');

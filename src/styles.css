@@ -524,3 +524,47 @@ body {
   border: 1.5px solid var(--leaf-ink); background: #F1F8EC; color: var(--leaf-ink); font: inherit; font-size: 0.875rem; font-weight: 700; cursor: pointer; }
 .install-btn:hover { background: #E4F2DA; }
 @media (max-width: 520px) { .install-btn span { display: none; } .install-btn { padding: 0.3rem 0.55rem; } }
+
+/* ---------- Overview (management) ---------- */
+.overview .ov-title { font-size: 1.35rem; margin: 2rem 0 0.9rem; padding-bottom: 0.35rem; border-bottom: 3px solid var(--orange); display: inline-block; }
+.overview .ov-title:first-of-type { margin-top: 0.5rem; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; }
+.kpi { background: rgba(255,255,255,0.96); border: 1px solid var(--rule); border-top: 4px solid var(--navy); border-radius: var(--radius); padding: 0.8rem 1rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.kpi-warn { border-top-color: var(--orange); }
+.kpi-label { font-size: 0.875rem; color: var(--muted); font-weight: 700; }
+.kpi-value { font-size: 1.6rem; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.kpi-sub { font-size: 0.8125rem; color: var(--muted); }
+.ov-flags { display: grid; gap: 1.25rem; grid-template-columns: 1fr; margin-bottom: 1.25rem; }
+@media (min-width: 900px) { .ov-flags { grid-template-columns: 1fr 1fr; align-items: start; } }
+.ov-flags .facts { margin: 0; }
+.flag-card { border-left: 4px solid var(--orange); }
+.flag-big { font-size: 1.2rem; font-weight: 700; color: var(--orange-ink); margin: 0.2rem 0; }
+.flag-sub { margin-top: 1.1rem; }
+.legend-row { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.6rem; }
+.legend-row i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 0.35rem; vertical-align: -1px; }
+.b0 { background: var(--leaf); } .b1 { background: var(--sky); } .b2 { background: var(--orange); } .b3 { background: var(--orange-ink); } .b4 { background: var(--red); }
+.age-row { display: grid; grid-template-columns: 11rem 1fr 7.5rem; gap: 0.75rem; align-items: center; margin-bottom: 0.55rem; }
+.age-name { display: flex; flex-direction: column; line-height: 1.2; }
+.age-name small { color: var(--muted); font-size: 0.75rem; }
+.age-track { display: flex; height: 22px; border-radius: 4px; overflow: hidden; background: #EEF0F4; }
+.age-track span { display: block; height: 100%; }
+.age-total { font-weight: 700; }
+@media (max-width: 640px) { .age-row { grid-template-columns: 1fr; gap: 0.2rem; } .age-track { width: 100% !important; } }
+.stage-row { display: grid; grid-template-columns: 8rem 1fr auto; gap: 0.6rem; align-items: center; margin-bottom: 0.45rem; font-size: 0.9375rem; }
+.stage-bar { height: 12px; background: #EEF0F4; border-radius: 6px; overflow: hidden; }
+.stage-bar span { display: block; height: 100%; background: var(--navy); border-radius: 6px; }
+.week-cols { display: flex; align-items: flex-end; gap: 0.5rem; height: 220px; padding-top: 1.2rem; overflow-x: auto; }
+.week { flex: 1 0 44px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 0.2rem; }
+.week-bar { width: 70%; display: flex; flex-direction: column; border-radius: 4px 4px 0 0; overflow: hidden; }
+.week-bar span { display: block; width: 100%; }
+.week-total { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.week-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+.w-rec { background: var(--navy); } .w-tag { background: var(--sky); } .w-unid { background: var(--orange); }
+
+/* ---------- Finance Admin: View as ---------- */
+.viewas { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8125rem; font-weight: 700; color: var(--muted); }
+.viewas select { width: auto; min-height: 34px; padding: 0.2rem 0.5rem; font-size: 0.875rem; font-weight: 700; color: var(--navy); border-color: var(--navy); }
+.view-banner { grid-column: 1 / -1; background: #EAF0FB; color: var(--navy); padding: 0.45rem 1rem; font-size: 0.9375rem; border-bottom: 2px solid var(--sky); }
+.view-banner strong { color: var(--navy); }
+.view-banner .link { margin-left: 0.5rem; }
+@media (max-width: 520px) { .viewas span { display: none; } }

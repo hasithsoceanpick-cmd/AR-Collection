@@ -29,10 +29,10 @@ export const isOpen = (c) => !['closed', 'cancelled', 'returned'].includes(c.sta
 export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer' };
 
 // Is the next move on this item the current user's?
-export function waitingOnMe(c, role, userId) {
+export function waitingOnMe(c, role, userId, isAdmin = false) {
   if (role === 'finance') return ['submitted', 'collected', 'deposited', 'review'].includes(c.status);
-  if (role === 'driver') return c.driver_id === userId && ['assigned', 'received'].includes(c.status);
-  if (role === 'sales') return c.created_by === userId && c.status === 'relink';
+  if (role === 'driver') return (c.driver_id === userId || (isAdmin && c.driver_id)) && ['assigned', 'received'].includes(c.status);
+  if (role === 'sales') return (c.created_by === userId || isAdmin) && c.status === 'relink';
   return false;
 }
 

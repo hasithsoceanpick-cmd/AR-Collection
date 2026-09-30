@@ -15,7 +15,7 @@ import {
 
 export default function Detail() {
   const { id } = useParams();
-  const { role, session } = useAuth();
+  const { role, session, isAdmin } = useAuth();
   const uid = session.user.id;
   const [c, setC] = useState(undefined);
   const [cheques, setCheques] = useState([]);
@@ -69,9 +69,9 @@ export default function Detail() {
   );
 
   const isTransfer = c.kind === 'transfer';
-  const isDriver = role === 'driver' && c.driver_id === uid;
+  const isDriver = role === 'driver' && (c.driver_id === uid || isAdmin);
   const isFinance = role === 'finance';
-  const isCreator = c.created_by === uid;
+  const isCreator = c.created_by === uid || isAdmin;
   const canEdit = !isTransfer && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
   const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
@@ -82,7 +82,7 @@ export default function Detail() {
 
   return (
     <section className="detail">
-      <Link to="/" className="back">All collections</Link>
+      <Link to={role === 'executive' ? '/collections' : '/'} className="back">All collections</Link>
 
       <div className="slip">
         <div className="slip-top">
@@ -246,7 +246,7 @@ export default function Detail() {
         </div>
       )}
 
-      {isFinance && ((isTransfer && c.line_id && c.status !== 'review') || (deposit?.closed_at && depLines.length > 0)) && (
+      {(isFinance || role === 'executive') && ((isTransfer && c.line_id && c.status !== 'review') || (deposit?.closed_at && depLines.length > 0)) && (
         <details className="facts stmt-details">
           <summary>Show on the bank statement</summary>
           <StatementView accountId={isTransfer ? c.account_id : deposit.account_id}

@@ -100,7 +100,7 @@ export default function CustomerData() {
         last={last.customers}
         steps={[
           'Open Customers in Business Central.',
-          'Clear any filters so every customer is listed.',
+          'Clear any filters so every customer is listed, and make sure Customer Posting Group and Payment Terms Code are showing (Personalize if not). The Overview uses them.',
           'Choose Share → Open in Excel and save the file.',
           'Upload that file here without changing it.',
         ]}
