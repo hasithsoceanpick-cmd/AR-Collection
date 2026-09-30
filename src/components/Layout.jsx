@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { IS_DEMO, switchMode } from '../lib/supabase';
 import Notifications from './Notifications';
+import InstallButton from './InstallButton';
 
 const ROLE_LABEL = { sales: 'Sales', driver: 'Driver', finance: 'Finance' };
 
@@ -29,6 +30,7 @@ export default function Layout() {
           <span className="brand-bars" aria-hidden="true"><i /><i /><i /></span>
           <span className="brand-name">Collections<small>Round Island</small></span>
         </div>
+        <InstallButton />
         <div className="modeswitch" role="group" aria-label="Section">
           <button className={IS_DEMO ? '' : 'on'} aria-pressed={!IS_DEMO} onClick={() => IS_DEMO && switchMode(false)}>Live</button>
           <button className={IS_DEMO ? 'on' : ''} aria-pressed={IS_DEMO} onClick={() => !IS_DEMO && switchMode(true)}>Demo</button>

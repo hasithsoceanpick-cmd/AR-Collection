@@ -518,3 +518,9 @@ body {
 .lh-band { margin: 1.25rem -1.5rem 0; background: #34781A; color: #fff; text-align: center; padding: 0.7rem 1rem 0.8rem;
   border-top: 4px solid var(--leaf); font-size: 0.8125rem; line-height: 1.4; }
 .lh-band strong { display: block; font-size: 1rem; }
+
+/* ---------- Install app ---------- */
+.install-btn { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 36px; padding: 0.3rem 0.8rem; border-radius: 999px;
+  border: 1.5px solid var(--leaf-ink); background: #F1F8EC; color: var(--leaf-ink); font: inherit; font-size: 0.875rem; font-weight: 700; cursor: pointer; }
+.install-btn:hover { background: #E4F2DA; }
+@media (max-width: 520px) { .install-btn span { display: none; } .install-btn { padding: 0.3rem 0.55rem; } }
