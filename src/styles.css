@@ -73,7 +73,11 @@ code { font-size: 0.9em; }
   border-top: 3px solid transparent;
 }
 .sidenav a.active { color: var(--ink); font-weight: 700; border-top-color: var(--ink); }
-.content { padding: 1.25rem 1rem 6rem; width: 100%; max-width: 920px; margin: 0 auto; }
+.content { padding: 1.25rem 1rem 6rem; width: 100%; max-width: none; margin: 0 auto; min-width: 0; }
+.content > section { max-width: 920px; }
+.content > section.wide { max-width: 1100px; }
+.content > section.narrow { max-width: 680px; }
+.content > .split-page { max-width: none; }
 
 @media (min-width: 900px) {
   .shell { grid-template-columns: 220px 1fr; grid-template-rows: auto 1fr; }
@@ -568,3 +572,25 @@ body {
 .view-banner strong { color: var(--navy); }
 .view-banner .link { margin-left: 0.5rem; }
 @media (max-width: 520px) { .viewas span { display: none; } }
+
+.total.neutral { background: #EEF0F4; color: var(--ink); }
+.total.neutral span:first-child { color: var(--ink); }
+
+/* ---------- Form + bank statement side by side ---------- */
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.split > .split-main { max-width: 680px; min-width: 0; }
+.split-page > .facts, .split-page > .section-title, .split-page > .page-head, .split-page > p { max-width: 920px; }
+.stmt-aside { min-width: 0; }
+.stmt-aside > h2 { font-size: 1rem; margin: 0 0 0.25rem; }
+.stmt-aside .stmt-table { max-height: 60vh; }
+/* side by side only when there is room: menu 220 + padding 64 + form 600 + gap 24 + statement 400 */
+@media (min-width: 1320px) {
+  .split { grid-template-columns: minmax(0, 600px) minmax(400px, 1fr); }
+  .stmt-aside { position: sticky; top: 76px; }
+  .is-demo .stmt-aside { top: 112px; }
+  .stmt-aside .stmt-table { max-height: calc(100vh - 230px); }
+}
+.stmt.compact .stmt-table .table td { font-size: 0.8125rem; padding: 0.35rem 0.5rem; }
+.stmt.compact td.narr { min-width: 10rem; }
+.stmt.compact .stmt-sum { font-size: 0.8125rem; }
+.action .stmt { margin-top: 1rem; }

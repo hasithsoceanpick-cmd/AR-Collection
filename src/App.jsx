@@ -16,6 +16,7 @@ import Deposits from './pages/Deposits';
 import Reports from './pages/Reports';
 import Bank from './pages/Bank';
 import More from './pages/More';
+import Overview from './pages/Overview';
 
 function Gate() {
   const { session, loading, role } = useAuth();
@@ -26,13 +27,15 @@ function Gate() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<List />} />
+        <Route index element={role === 'executive' ? <Overview /> : <List />} />
+        <Route path="collections" element={<List />} />
+        {(role === 'finance' || role === 'executive') && <Route path="overview" element={<Overview />} />}
         {canCreate && <Route path="new" element={<CollectionForm />} />}
         <Route path="c/:id" element={<Detail />} />
         {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}
         {canCreate && <Route path="customers" element={<CustomerData />} />}
         {canCreate && <Route path="transfer" element={<TransferForm />} />}
-        {(role === 'driver' || role === 'finance') && <Route path="deposits" element={<Deposits />} />}
+        {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}
         <Route path="more" element={<More />} />
