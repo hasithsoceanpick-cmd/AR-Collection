@@ -49,7 +49,7 @@ code { font-size: 0.9em; }
 .num { font-variant-numeric: tabular-nums; text-align: right; }
 
 /* ---------- Shell ---------- */
-.shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+.shell { min-height: 100vh; display: grid; grid-template-rows: none; grid-auto-rows: auto; align-content: start; }
 .topbar {
   position: sticky; top: 0; z-index: 1000;
   display: flex; align-items: center; gap: 1rem;
@@ -80,7 +80,7 @@ code { font-size: 0.9em; }
 .content > .split-page { max-width: none; }
 
 @media (min-width: 900px) {
-  .shell { grid-template-columns: 220px 1fr; grid-template-rows: auto 1fr; }
+  .shell { grid-template-columns: 220px 1fr; grid-template-rows: none; grid-auto-rows: auto; align-content: start; }
   .topbar { grid-column: 1 / -1; }
   .sidenav {
     position: sticky; top: 56px; align-self: start; flex-direction: column;
