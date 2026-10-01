@@ -12,7 +12,7 @@ const monthLabel = (m) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}
 
 // Finance: a bank account's statement as uploaded, in the bank's own order with its running
 // balance, showing what every line is linked to. `highlightIds` = the line(s) the current item clears.
-export default function StatementView({ accountId, highlightIds = [], focusDate = null, allowTag = false }) {
+export default function StatementView({ accountId, highlightIds = [], focusDate = null, allowTag = false, compact = false }) {
   const [account, setAccount] = useState(null);
   const [lines, setLines] = useState(null);
   const [labels, setLabels] = useState({ c: {}, d: {} });
@@ -73,7 +73,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
   let firstHi = true;
 
   return (
-    <div className="stmt">
+    <div className={compact ? 'stmt compact' : 'stmt'}>
       <div className="stmt-head">
         <strong>{account?.name} statement</strong>
         <select value={shownMonth} onChange={(e) => setMonth(e.target.value)} aria-label="Period">
@@ -90,7 +90,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
       </div>
       <div className="stmt-table">
         <table className="table">
-          <thead><tr><th>Date</th><th>Narration</th><th>Ref / Chq</th><th className="num">Out</th><th className="num">In</th><th className="num">Balance</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Narration</th>{!compact && <th>Ref / Chq</th>}<th className="num">Out</th><th className="num">In</th><th className="num">Balance</th><th>Status</th></tr></thead>
           <tbody>
             {shown.map((l) => {
               const isHi = hi.has(l.id);
@@ -100,7 +100,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
                 <tr key={l.id} ref={refProp} className={cls}>
                   <td>{fmtDate(l.txn_date)}</td>
                   <td className="narr">{l.narration}</td>
-                  <td>{[l.reference, l.cheque_no].filter(Boolean).join(' · ')}</td>
+                  {!compact && <td>{[l.reference, l.cheque_no].filter(Boolean).join(' · ')}</td>}
                   <td className="num">{l.debit > 0 ? lkr(l.debit) : ''}</td>
                   <td className="num">{l.credit > 0 ? lkr(l.credit) : ''}</td>
                   <td className="num">{l.running != null ? lkr(l.running) : ''}</td>
