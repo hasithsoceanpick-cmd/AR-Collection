@@ -1,0 +1,67 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { configured } from './lib/supabase';
+import { AuthProvider, useAuth } from './lib/auth';
+import Layout from './components/Layout';
+import Login from './pages/Login';
+import NoAccess from './pages/NoAccess';
+import List from './pages/List';
+import CollectionForm from './pages/CollectionForm';
+import Detail from './pages/Detail';
+import Photos from './pages/Photos';
+import Users from './pages/Users';
+import Account from './pages/Account';
+import CustomerData from './pages/CustomerData';
+import TransferForm from './pages/TransferForm';
+import Deposits from './pages/Deposits';
+import Reports from './pages/Reports';
+import Bank from './pages/Bank';
+import More from './pages/More';
+import Overview from './pages/Overview';
+
+function Gate() {
+  const { session, loading, role } = useAuth();
+  if (loading) return <div className="login"><p className="muted">Loading…</p></div>;
+  if (!session) return <Login />;
+  if (!role) return <NoAccess />;
+  const canCreate = role === 'sales' || role === 'finance';
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={role === 'executive' ? <Overview /> : <List />} />
+        <Route path="collections" element={<List />} />
+        {(role === 'finance' || role === 'executive') && <Route path="overview" element={<Overview />} />}
+        {canCreate && <Route path="new" element={<CollectionForm />} />}
+        <Route path="c/:id" element={<Detail />} />
+        {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}
+        {canCreate && <Route path="customers" element={<CustomerData />} />}
+        {canCreate && <Route path="transfer" element={<TransferForm />} />}
+        {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
+        <Route path="reports" element={<Reports />} />
+        {role === 'finance' && <Route path="bank" element={<Bank />} />}
+        <Route path="more" element={<More />} />
+        {role === 'finance' && <Route path="photos" element={<Photos />} />}
+        {role === 'finance' && <Route path="users" element={<Users />} />}
+        <Route path="account" element={<Account />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
+  if (!configured) {
+    return (
+      <div className="login"><div className="login-card">
+        <span className="brand-bars big" aria-hidden="true"><i /><i /><i /></span>
+        <h1>Almost ready</h1>
+        <p>This site isn't connected to Supabase yet. In Netlify, add the environment variables
+          <code> VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>, then redeploy.</p>
+      </div></div>
+    );
+  }
+  return (
+    <BrowserRouter>
+      <AuthProvider><Gate /></AuthProvider>
+    </BrowserRouter>
+  );
+}

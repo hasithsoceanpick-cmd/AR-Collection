@@ -1,0 +1,169 @@
+// Reads bank statement Excel files. Every bank lays its file out differently,
+// so each account stores a "mapping": which header names hold the date,
+// narration, debit, credit, balance and reference. The header row is found by
+// looking for those names, so title blocks above it and footers below it are ignored.
+
+export const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+export async function readRows(file) {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); // dates stay as serial numbers
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+}
+
+// ---------- values ----------
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+const iso = (y, m, d) => {
+  const Y = Number(y) < 100 ? 2000 + Number(y) : Number(y);
+  const M = Number(m), D = Number(d);
+  if (!(M >= 1 && M <= 12 && D >= 1 && D <= 31 && Y > 1990 && Y < 2100)) return null;
+  return `${Y}-${String(M).padStart(2, '0')}-${String(D).padStart(2, '0')}`;
+};
+
+export function parseDate(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') {
+    if (v < 20000 || v > 80000) return null; // not an Excel date serial
+    return new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000).toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);            // 2026-09-01
+  if (m) return iso(m[1], m[2], m[3]);
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/);           // 01/09/2026 (day first, Sri Lanka)
+  if (m) return iso(m[3], m[2], m[1]);
+  m = s.match(/^(\d{1,2})[-\s/.]([A-Za-z]{3,4})[-\s/.,]*(\d{2,4})\b/); // 28-Sep-2026, 28 Sep 2026
+  if (m && MONTHS[m[2].toLowerCase()]) return iso(m[3], MONTHS[m[2].toLowerCase()], m[1]);
+  return null;
+}
+
+// "12,023.15" → 12023.15, "-" → 0, "1,303,641.35CR" → 1303641.35, "500.00 DR" → -500, "(25.00)" → -25
+export function parseAmount(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  let s = String(v).replace(/lkr|rs\.?/gi, '').replace(/,/g, '').trim();
+  if (s === '' || s === '-' || s === '--') return null;
+  let sign = 1;
+  if (/dr$/i.test(s)) { sign = -1; s = s.replace(/dr$/i, ''); }
+  else if (/cr$/i.test(s)) s = s.replace(/cr$/i, '');
+  if (/^\(.*\)$/.test(s)) { sign = -sign; s = s.slice(1, -1); }
+  const n = Number(s.trim());
+  return Number.isFinite(n) ? sign * n : null;
+}
+
+// ---------- header detection & mapping suggestions ----------
+const HINTS = {
+  date: [/^(txn|transaction|trade|posting|tran|post)\.? ?date$/, /^date$/, /date/],
+  narration: [/description|particulars|narrative|narration|details|remarks/],
+  debit: [/debit|withdrawal|dr amount/],
+  credit: [/credit|deposit|cr amount/],
+  amount: [/^amount$/, /^amount \(/],
+  balance: [/^balance/, /running balance/, /balance/],
+  reference: [/^ref ?no\.?$/, /transaction reference/, /^reference$/, /ref/],
+  cheque: [/cheque|chq/],
+};
+
+function scoreRow(cells) {
+  const c = cells.map(norm).filter(Boolean);
+  if (c.length < 3) return 0;
+  let s = 0;
+  if (c.some((x) => /date/.test(x))) s += 2;
+  if (c.some((x) => HINTS.narration[0].test(x))) s += 2;
+  if (c.some((x) => /credit|debit|amount/.test(x))) s += 2;
+  if (c.some((x) => /balance/.test(x))) s += 1;
+  return s;
+}
+
+export function findHeaderRow(rows) {
+  let best = -1, bestScore = 0;
+  for (let i = 0; i < Math.min(rows.length, 60); i++) {
+    const sc = scoreRow(rows[i] ?? []);
+    if (sc > bestScore) { best = i; bestScore = sc; }
+  }
+  return bestScore >= 5 ? best : -1;
+}
+
+export const headerCells = (rows, i) =>
+  (rows[i] ?? []).map((v, idx) => ({ idx, text: String(v ?? '').replace(/\s+/g, ' ').trim() })).filter((c) => c.text);
+
+export function suggestMapping(cells) {
+  const used = new Set();
+  const pick = (key, avoid = []) => {
+    for (const re of HINTS[key]) {
+      const hit = cells.find((c) => !used.has(c.idx) && re.test(norm(c.text)) && !avoid.some((a) => a.test(norm(c.text))));
+      if (hit) { used.add(hit.idx); return hit.text; }
+    }
+    return null;
+  };
+  const m = {};
+  m.date = pick('date', [/value|effective/]);
+  m.debit = pick('debit');
+  m.credit = pick('credit');
+  m.amount = m.debit || m.credit ? null : pick('amount');
+  m.balance = pick('balance', [/opening|available|calc/]);
+  m.cheque = pick('cheque');
+  m.reference = pick('reference', [/other/]);
+  const narr = cells.filter((c) => !used.has(c.idx) && (HINTS.narration[0].test(norm(c.text)) || norm(c.text) === 'transaction type'));
+  m.narration = narr.map((c) => c.text);
+  return m;
+}
+
+// ---------- parsing with a saved mapping ----------
+function locate(rows, mapping) {
+  const want = [mapping.date, ...(mapping.credit ? [mapping.credit] : []), ...(mapping.amount ? [mapping.amount] : [])].map(norm);
+  for (let i = 0; i < Math.min(rows.length, 80); i++) {
+    const cells = (rows[i] ?? []).map(norm);
+    if (want.every((w) => cells.includes(w))) {
+      const col = (name) => (name ? cells.indexOf(norm(name)) : -1);
+      return {
+        row: i,
+        date: col(mapping.date), debit: col(mapping.debit), credit: col(mapping.credit), amount: col(mapping.amount),
+        balance: col(mapping.balance), reference: col(mapping.reference), cheque: col(mapping.cheque),
+        narration: (mapping.narration ?? []).map(col).filter((x) => x >= 0),
+      };
+    }
+  }
+  return null;
+}
+
+const text = (v) => (v == null ? '' : String(v).replace(/\s+/g, ' ').trim());
+const dash = (s) => (s === '-' || s === '--' ? '' : s);
+
+export function parseStatement(rows, mapping) {
+  if (!mapping?.date || !(mapping.credit || mapping.amount)) {
+    throw new Error('This account has no column setup yet. Set up its columns first.');
+  }
+  const at = locate(rows, mapping);
+  if (!at) {
+    throw new Error(`Couldn't find the columns “${mapping.date}” and “${mapping.credit || mapping.amount}” in this file. ` +
+      'Check it is a statement for this account, or redo the column setup if the bank changed its layout.');
+  }
+  const out = [];
+  let skipped = 0;
+  for (const r of rows.slice(at.row + 1)) {
+    if (!r) continue;
+    const d = parseDate(r[at.date]);
+    if (!d) { if (r.some((v) => text(v))) skipped++; continue; }
+    let debit = 0, credit = 0;
+    if (at.amount >= 0) {
+      const a = parseAmount(r[at.amount]) ?? 0;
+      if (a >= 0) credit = a; else debit = -a;
+    } else {
+      debit = Math.abs(parseAmount(r[at.debit]) ?? 0);
+      credit = Math.abs(parseAmount(r[at.credit]) ?? 0);
+    }
+    if (!debit && !credit) { skipped++; continue; }
+    out.push({
+      txn_date: d,
+      narration: at.narration.map((i) => dash(text(r[i]))).filter(Boolean).join(' | '),
+      reference: at.reference >= 0 ? dash(text(r[at.reference])) : '',
+      cheque_no: at.cheque >= 0 ? dash(text(r[at.cheque])) : '',
+      debit: Math.round(debit * 100) / 100,
+      credit: Math.round(credit * 100) / 100,
+      balance: at.balance >= 0 ? parseAmount(r[at.balance]) : null,
+    });
+  }
+  if (!out.length) throw new Error('No transaction lines were found under the header row.');
+  const dates = out.map((l) => l.txn_date).sort();
+  return { lines: out, skipped, from: dates[0], to: dates[dates.length - 1] };
+}
