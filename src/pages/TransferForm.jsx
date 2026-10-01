@@ -7,6 +7,7 @@ import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
 import BankLinePicker from '../components/BankLinePicker';
 import ReceiptInput from '../components/ReceiptInput';
+import StatementAside from '../components/StatementAside';
 
 export default function TransferForm() {
   const nav = useNavigate();
@@ -62,7 +63,8 @@ export default function TransferForm() {
 
 
   return (
-    <section className="narrow">
+    <div className="split-page split">
+    <section className="split-main">
       <div className="page-head"><h1>Record a bank transfer</h1></div>
       <p className="lede">The transfer must already be on the bank statement in the app. Pick the customer and invoices, type the amount that arrived, then pick its bank line.</p>
 
@@ -130,5 +132,7 @@ export default function TransferForm() {
         </div>
       </form>
     </section>
+    <StatementAside accountId={accountId} highlightIds={line ? [line.id] : []} focusDate={line?.txn_date ?? acct?.last_line_date} />
+    </div>
   );
 }

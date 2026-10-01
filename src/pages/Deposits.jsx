@@ -6,6 +6,7 @@ import { lkr, ref, fmtDate, todayISO, personName } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
 import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
+import StatementAside from '../components/StatementAside';
 
 function RecordDeposit({ accounts, onDone }) {
   const [items, setItems] = useState(null);
@@ -50,9 +51,11 @@ function RecordDeposit({ accounts, onDone }) {
   if (items.length === 0) return <div className="facts"><h2>Record a deposit</h2><p className="muted">No cheques are waiting to be deposited.</p></div>;
 
   return (
-    <form className="action" onSubmit={save}>
+    <div className="split">
+    <form className="action split-main" onSubmit={save}>
       <h2>Record a deposit</h2>
-      <p className="hint">One slip at a time. Tick every collection whose cheques are on this slip.</p>
+      <p className="hint">Record the slip as soon as you've banked it: one slip at a time, ticking every collection whose cheques are on it.
+        No bank line is needed now. Finance matches the slip to the bank statement once the cheques clear, usually a day or two later.</p>
       <ul className="checklist">
         {items.map((c) => (
           <li key={c.id} className={picked.has(c.id) ? 'on' : ''}>
@@ -78,14 +81,31 @@ function RecordDeposit({ accounts, onDone }) {
         <label className="field"><span className="flabel">Slip or reference number</span>
           <input value={reference} onChange={(e) => setReference(e.target.value)} /></label>
       </div>
-      <div className={matches ? 'total ok' : 'total warn'}>
-        <span>Ticked cheques: LKR {lkr(sum)}</span>
-        {picked.size > 0 && slipNum > 0 && !matches && <span>That doesn't match the slip total of LKR {lkr(slipNum)}. Check for a missing or extra cheque.</span>}
+      <div className={`total ${picked.size === 0 || slipNum === 0 ? 'neutral' : matches ? 'ok' : 'warn'}`}>
+        <span>Ticked cheques: LKR {lkr(sum)}{slipNum > 0 ? ` · Slip total: LKR ${lkr(slipNum)}` : ''}</span>
+        {picked.size > 0 && slipNum > 0 && (matches
+          ? <span>The slip total matches the ticked cheques.</span>
+          : <span>These don't match. Check for a cheque missing from the ticks, or an extra one ticked.</span>)}
+        {(picked.size === 0 || slipNum === 0) && <span>The slip total you type must equal the cheques you tick.</span>}
       </div>
       <PhotoInput label="Photo of the deposit slip" value={slip} onChange={setSlip} />
       {error && <p className="error">{error}</p>}
-      <button className="btn primary" disabled={busy || !matches || !accountId}>{busy ? 'Saving…' : 'Save deposit'}</button>
+      {(() => {
+        const missing = picked.size === 0 ? 'Tick the cheques on this slip'
+          : !accountId ? 'Choose the bank account'
+          : slipNum === 0 ? 'Enter the slip total'
+          : !matches ? 'The slip total must equal the ticked cheques'
+          : !slip ? 'Add the slip photo' : null;
+        return (
+          <>
+            <button className="btn primary" disabled={busy || Boolean(missing)}>{busy ? 'Saving…' : 'Save deposit'}</button>
+            {missing && !busy && <p className="hint">{missing} to save.</p>}
+          </>
+        );
+      })()}
     </form>
+    <StatementAside accountId={accountId} focusDate={date} />
+    </div>
   );
 }
 
@@ -142,7 +162,7 @@ export default function Deposits() {
   );
 
   return (
-    <section>
+    <section className="split-page">
       <div className="page-head"><h1>Deposits</h1></div>
       {listError && <p className="error">Couldn't load deposits: {listError}</p>}
       {(role === 'driver' || role === 'finance') && <RecordDeposit accounts={accounts} onDone={load} />}

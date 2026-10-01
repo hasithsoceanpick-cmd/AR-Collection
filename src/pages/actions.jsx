@@ -255,6 +255,7 @@ export function RelinkPanel({ c, onDone }) {
       <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc('cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
         Link and send to finance
       </button>
+      {accountId && <StatementView key={accountId} accountId={Number(accountId)} highlightIds={line ? [line.id] : []} focusDate={line?.txn_date} compact />}
     </div>
   );
 }
