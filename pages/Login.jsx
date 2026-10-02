@@ -32,7 +32,7 @@ export default function Login() {
   return (
     <div className="login">
       <div className="login-card">
-        <img className="login-logo" src="/logo.png" alt="Round Island" />
+        <span className="brand-bars big" aria-hidden="true"><i /><i /><i /></span>
         <h1>Collections</h1>
         {sent ? (
           <p>Check <strong>{email}</strong> for a sign-in link. Open it on this device.</p>

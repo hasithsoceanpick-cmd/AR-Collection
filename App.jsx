@@ -16,6 +16,10 @@ import Deposits from './pages/Deposits';
 import Reports from './pages/Reports';
 import Bank from './pages/Bank';
 import More from './pages/More';
+import Overview from './pages/Overview';
+import BcExport from './pages/BcExport';
+import BcCheck from './pages/BcCheck';
+import BankRec from './pages/BankRec';
 
 function Gate() {
   const { session, loading, role } = useAuth();
@@ -26,13 +30,18 @@ function Gate() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<List />} />
+        <Route index element={role === 'executive' ? <Overview /> : <List />} />
+        <Route path="collections" element={<List />} />
+        {(role === 'finance' || role === 'executive') && <Route path="overview" element={<Overview />} />}
+        {role === 'finance' && <Route path="bc-export" element={<BcExport />} />}
+        {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
+        {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
         {canCreate && <Route path="new" element={<CollectionForm />} />}
         <Route path="c/:id" element={<Detail />} />
         {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}
         {canCreate && <Route path="customers" element={<CustomerData />} />}
         {canCreate && <Route path="transfer" element={<TransferForm />} />}
-        {(role === 'driver' || role === 'finance') && <Route path="deposits" element={<Deposits />} />}
+        {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}
         <Route path="more" element={<More />} />
@@ -49,6 +58,7 @@ export default function App() {
   if (!configured) {
     return (
       <div className="login"><div className="login-card">
+        <span className="brand-bars big" aria-hidden="true"><i /><i /><i /></span>
         <h1>Almost ready</h1>
         <p>This site isn't connected to Supabase yet. In Netlify, add the environment variables
           <code> VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>, then redeploy.</p>

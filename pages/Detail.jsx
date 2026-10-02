@@ -10,12 +10,12 @@ import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
 import StatementView from '../components/StatementView';
 import {
-  AssignPanel, CollectPanel, ReceivePanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
+  AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
 } from './actions';
 
 export default function Detail() {
   const { id } = useParams();
-  const { role, session } = useAuth();
+  const { role, session, isAdmin } = useAuth();
   const uid = session.user.id;
   const [c, setC] = useState(undefined);
   const [cheques, setCheques] = useState([]);
@@ -24,6 +24,7 @@ export default function Detail() {
   const [line, setLine] = useState(null);
   const [depLines, setDepLines] = useState([]);
   const [replacement, setReplacement] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
     const [a, b, e] = await Promise.all([
@@ -32,6 +33,7 @@ export default function Detail() {
       db.from('events').select('*, actor:profiles(full_name,email)').eq('collection_id', id).order('id'),
     ]);
     const col = a.data ?? null;
+    setLoadError(a.error?.message || b.error?.message || e.error?.message || '');
     setC(col); setCheques(b.data ?? []); setEvents(e.data ?? []);
     if (!col) return;
     let lineId = col.kind === 'transfer' ? col.line_id : null;
@@ -61,14 +63,15 @@ export default function Detail() {
   }, [id, load]);
 
   if (c === undefined) return <p className="muted">Loading…</p>;
+  if (loadError) return <div className="empty"><p className="error">Couldn't load this item: {loadError}</p><Link to="/">Back to collections</Link></div>;
   if (c === null) return (
     <div className="empty"><p>This item doesn't exist or isn't shared with you.</p><Link to="/">Back to collections</Link></div>
   );
 
   const isTransfer = c.kind === 'transfer';
-  const isDriver = role === 'driver' && c.driver_id === uid;
+  const isDriver = role === 'driver' && (c.driver_id === uid || isAdmin);
   const isFinance = role === 'finance';
-  const isCreator = c.created_by === uid;
+  const isCreator = c.created_by === uid || isAdmin;
   const canEdit = !isTransfer && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
   const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
@@ -79,7 +82,7 @@ export default function Detail() {
 
   return (
     <section className="detail">
-      <Link to="/" className="back">All collections</Link>
+      <Link to={role === 'executive' ? '/collections' : '/'} className="back">All collections</Link>
 
       <div className="slip">
         <div className="slip-top">
@@ -117,7 +120,9 @@ export default function Detail() {
       {/* The action for whoever is next */}
       {!isTransfer && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
       {!isTransfer && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
+      {!isTransfer && c.split_needed && !c.split_at && role === 'sales' && isCreator && cheques.length > 1 && <SplitPanel c={c} cheques={cheques} onDone={load} />}
       {!isTransfer && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
+      {!isTransfer && c.split_needed && c.split_at && <SplitSummary cheques={cheques} />}
       {!isTransfer && (isDriver || isFinance) && c.status === 'received' && (
         <div className="action quiet">
           <Link className="btn primary" to="/deposits">Record the deposit slip</Link>
@@ -158,6 +163,7 @@ export default function Detail() {
           <h2>Bank</h2>
           {line ? (
             <dl>
+              <dt>Received as</dt><dd>{c.pay_method === 'cheque' ? `Cheque deposited by the customer, cheque ${c.cheque_no}` : 'Bank transfer or online payment'}</dd>
               <dt>Account</dt><dd>{line.account_name}</dd>
               <dt>Bank date</dt><dd>{fmtDate(line.txn_date)}</dd>
               <dt>Narration</dt><dd>{line.narration}</dd>
@@ -243,7 +249,7 @@ export default function Detail() {
         </div>
       )}
 
-      {isFinance && ((isTransfer && c.line_id && c.status !== 'review') || (deposit?.closed_at && depLines.length > 0)) && (
+      {(isFinance || role === 'executive') && ((isTransfer && c.line_id && c.status !== 'review') || (deposit?.closed_at && depLines.length > 0)) && (
         <details className="facts stmt-details">
           <summary>Show on the bank statement</summary>
           <StatementView accountId={isTransfer ? c.account_id : deposit.account_id}
@@ -273,5 +279,22 @@ export default function Detail() {
         </div>
       )}
     </section>
+  );
+}
+
+function SplitSummary({ cheques }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    db.from('cheque_allocations').select('cheque_id, document_no, amount').in('cheque_id', cheques.map((q) => q.id)).order('id')
+      .then(({ data }) => setRows(data ?? []));
+  }, [cheques]);
+  if (!rows) return null;
+  return (
+    <div className="facts">
+      <h2>Sales' split of invoices across the cheques</h2>
+      <ul className="plain">{cheques.map((q) => (
+        <li key={q.id}>Cheque {q.cheque_no} (LKR {lkr(q.amount)}): {rows.filter((r) => r.cheque_id === q.id).map((r) => `${r.document_no} ${lkr(r.amount)}`).join(', ') || 'nothing'}</li>
+      ))}</ul>
+    </div>
   );
 }

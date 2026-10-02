@@ -7,7 +7,7 @@ import { lkr, ref, fmtDate, personName, daysAgo } from '../lib/format';
 import StatusStamp from '../components/StatusStamp';
 
 export default function List() {
-  const { role, session } = useAuth();
+  const { role, session, isAdmin } = useAuth();
   const uid = session.user.id;
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
@@ -30,7 +30,7 @@ export default function List() {
 
   const groups = useMemo(() => {
     const all = rows ?? [];
-    const mine = all.filter((c) => waitingOnMe(c, role, uid));
+    const mine = all.filter((c) => waitingOnMe(c, role, uid, isAdmin));
     const open = all.filter(isOpen);
     const done = all.filter((c) => !isOpen(c));
     if (role === 'driver') {
@@ -38,10 +38,10 @@ export default function List() {
       mine.sort(byDate);
     }
     return { mine, open, done, all };
-  }, [rows, role, uid]);
+  }, [rows, role, uid, isAdmin]);
 
   const tabs = [
-    { key: 'mine', label: 'For you', list: groups.mine },
+    ...(role !== 'executive' ? [{ key: 'mine', label: 'For you', list: groups.mine }] : []),
     { key: 'open', label: 'Open', list: groups.open },
     { key: 'done', label: 'Closed', list: groups.done },
   ];

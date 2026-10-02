@@ -6,7 +6,7 @@ export default function NoAccess() {
   return (
     <div className="login">
       <div className="login-card">
-        <img className="login-logo" src="/logo.png" alt="Round Island" />
+        <span className="brand-bars big" aria-hidden="true"><i /><i /><i /></span>
         <h1>{inactive ? 'Access switched off' : 'Almost there'}</h1>
         <p>
           {inactive

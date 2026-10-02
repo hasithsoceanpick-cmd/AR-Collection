@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import { supabase, rpc, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -21,13 +21,14 @@ function FitAll({ points }) {
 }
 
 function MapReport() {
-  const { role, session } = useAuth();
+  const { role, session, isAdmin } = useAuth();
   const [rows, setRows] = useState(null);
   const [show, setShow] = useState({ submitted: true, assigned: true, collected: true });
-  const [driver, setDriver] = useState(role === 'driver' ? session.user.id : '');
+  const [driver, setDriver] = useState(role === 'driver' && !isAdmin ? session.user.id : '');
   const [when, setWhen] = useState(role === 'driver' ? 'today' : 'all');
 
-  const load = useCallback(() => rpc('cc_report_map').then(setRows).catch(() => setRows([])), []);
+  const [err, setErr] = useState('');
+  const load = useCallback(() => rpc('cc_report_map').then((r) => { setErr(''); setRows(r); }).catch((e) => { setErr(e.message); setRows([]); }), []);
   useEffect(() => {
     load();
     const ch = supabase.channel('report-map').on('postgres_changes', { event: '*', schema: SCHEMA, table: 'collections' }, load).subscribe();
@@ -70,6 +71,7 @@ function MapReport() {
           </select>
         </div>
       </div>
+      {err && <p className="error">Couldn't load the map: {err}</p>}
       <p className="hint">{filtered.length} cheque{filtered.length === 1 ? '' : 's'}, LKR {lkr(total)}.</p>
       <div className="map map-report">
         <MapContainer center={[7.2, 80.4]} zoom={8} scrollWheelZoom>
@@ -107,12 +109,15 @@ function Reconciliation() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const [l, d, o] = await Promise.all([
-      db.from('bank_credits').select('*').is('link_kind', null).order('txn_date').limit(1000),
-      rpc('cc_report_unlinked_deposits'),
-      rpc('cc_report_open'),
-    ]);
-    setLines(l.data ?? []); setDeps(d ?? []); setOpen((o ?? []).filter((x) => x.kind === 'transfer'));
+    try {
+      const [l, d, o] = await Promise.all([
+        db.from('bank_credits').select('*').is('link_kind', null).order('txn_date').limit(1000),
+        rpc('cc_report_unlinked_deposits'),
+        rpc('cc_report_open'),
+      ]);
+      if (l.error) throw new Error(l.error.message);
+      setLines(l.data ?? []); setDeps(d ?? []); setOpen((o ?? []).filter((x) => x.kind === 'transfer'));
+    } catch (e) { setError(`Couldn't load the reconciliation: ${e.message}`); setLines([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -146,12 +151,13 @@ function Reconciliation() {
             <h3 className="subhead">{acct}: {ls.length} lines, LKR {lkr(sum(ls, 'credit'))}</h3>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">LKR</th><th className="num">Days</th>{role === 'finance' && <th>Tag as</th>}</tr></thead>
+                <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">LKR</th><th className="num">Days</th>{(role === 'sales' || role === 'finance') && <th></th>}{role === 'finance' && <th>Tag as</th>}</tr></thead>
                 <tbody>
                   {ls.map((l) => (
                     <tr key={l.id}>
                       <td>{fmtDate(l.txn_date)}</td><td>{l.narration}</td><td>{l.reference}</td>
                       <td className="num">{lkr(l.credit)}</td><td className="num">{daysAgo(l.txn_date)}</td>
+                      {(role === 'sales' || role === 'finance') && <td><Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link></td>}
                       {role === 'finance' && <td className="tag-btns">{Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l.id, k)}>{v}</button>)}</td>}
                     </tr>
                   ))}
@@ -192,8 +198,10 @@ const BANDS = [
 
 function Ageing() {
   const [rows, setRows] = useState(null);
-  useEffect(() => { rpc('cc_report_open').then(setRows).catch(() => setRows([])); }, []);
+  const [err, setErr] = useState('');
+  useEffect(() => { rpc('cc_report_open').then(setRows).catch((e) => { setErr(e.message); setRows([]); }); }, []);
   if (rows === null) return <p className="muted">Loading…</p>;
+  if (err) return <p className="error">Couldn't load the report: {err}</p>;
   const withAge = rows.map((r) => ({ ...r, age: daysAgo(r.created_at), stage: daysAgo(r.status_at) })).sort((a, b) => b.age - a.age);
   return (
     <>
@@ -223,8 +231,10 @@ function Ageing() {
 function Returned() {
   const { role } = useAuth();
   const [rows, setRows] = useState(null);
-  useEffect(() => { rpc('cc_report_returned').then(setRows).catch(() => setRows([])); }, []);
+  const [err, setErr] = useState('');
+  useEffect(() => { rpc('cc_report_returned').then(setRows).catch((e) => { setErr(e.message); setRows([]); }); }, []);
   if (rows === null) return <p className="muted">Loading…</p>;
+  if (err) return <p className="error">Couldn't load the report: {err}</p>;
   if (rows.length === 0) return <p className="muted">No returned cheques.</p>;
   return (
     <div className="table-wrap"><table className="table">
@@ -250,7 +260,8 @@ const TABS = [
 ];
 
 export default function Reports() {
-  const [tab, setTab] = useState('map');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get('tab') === 'recon' ? 'rec' : 'map');
   const T = TABS.find((t) => t.key === tab);
   return (
     <section className="wide">

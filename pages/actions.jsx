@@ -168,6 +168,12 @@ export function CollectPanel({ c, onDone, asFinance }) {
 // Step 5 — finance receives the cheques
 export function ReceivePanel({ c, onDone }) {
   const { busy, error, run } = useAction(onDone);
+  if (c.split_needed && !c.split_at) return (
+    <div className="action">
+      <h2>Receive the cheques</h2>
+      <p className="warn-text">The driver collected more than one cheque. Waiting for Sales to say which invoices each cheque pays, before the cheques can be received.</p>
+    </div>
+  );
   return (
     <div className="action">
       <h2>Receive the cheques</h2>
@@ -255,6 +261,7 @@ export function RelinkPanel({ c, onDone }) {
       <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc('cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
         Link and send to finance
       </button>
+      {accountId && <StatementView key={accountId} accountId={Number(accountId)} highlightIds={line ? [line.id] : []} focusDate={line?.txn_date} compact />}
     </div>
   );
 }
@@ -307,6 +314,45 @@ export function ReturnChequePanel({ c, cheques, onDone }) {
         <button className="btn danger" disabled={busy || !chequeId} onClick={() => run(() => rpc('cc_return_cheque', { p_cheque_id: Number(chequeId), p_reason: reason }))}>Mark returned</button>
         <button className="btn ghost" onClick={() => setOpen(false)}>Back</button>
       </div>
+    </div>
+  );
+}
+
+// Sales says which of its invoices each cheque pays (only when there are 2+ cheques).
+export function SplitPanel({ c, cheques, onDone }) {
+  const inv = (c.settlement ?? []).filter((s) => Number(s.remaining_amount) > 0);
+  const [alloc, setAlloc] = useState(() => {
+    const a = {};
+    for (const q of cheques) for (const s of inv) if (Math.abs(Number(s.remaining_amount) - Number(q.amount)) < 0.005 && !Object.values(a).some((x) => x[s.document_no])) a[q.id] = { ...(a[q.id] ?? {}), [s.document_no]: String(q.amount) };
+    return a;
+  });
+  const { busy, error, run } = useAction(onDone);
+  const set = (qid, doc, v) => setAlloc((a) => ({ ...a, [qid]: { ...(a[qid] ?? {}), [doc]: v.replace(/[^0-9.]/g, '') } }));
+  const qTotal = (qid) => Object.values(alloc[qid] ?? {}).reduce((t, v) => t + (Number(v) || 0), 0);
+  const invTotal = (doc) => cheques.reduce((t, q) => t + (Number(alloc[q.id]?.[doc]) || 0), 0);
+  const problems = [
+    ...cheques.filter((q) => qTotal(q.id) === 0).map((q) => `Cheque ${q.cheque_no} has no invoices`),
+    ...cheques.filter((q) => qTotal(q.id) > Number(q.amount) + 0.004).map((q) => `Cheque ${q.cheque_no}: more than LKR ${lkr(q.amount)} split onto it`),
+    ...inv.filter((s) => invTotal(s.document_no) > Number(s.remaining_amount) + 0.004).map((s) => `${s.document_no}: more than its open LKR ${lkr(s.remaining_amount)}`),
+  ];
+  const payload = cheques.flatMap((q) => Object.entries(alloc[q.id] ?? {}).filter(([, v]) => Number(v) > 0).map(([doc, v]) => ({ cheque_id: q.id, document_no: doc, amount: Number(v) })));
+  return (
+    <div className="action">
+      <h2>Which invoices does each cheque pay?</h2>
+      <p className="hint">The customer gave {cheques.length} cheques. Using your invoice list, enter the amount of each invoice paid by each cheque. An invoice can be split across cheques; anything a cheque pays beyond its invoices stays unapplied on the customer.</p>
+      <div className="table-wrap flat"><table className="table split-table">
+        <thead><tr><th>Invoice (open LKR)</th>{cheques.map((q) => <th key={q.id} className="num">Cheque {q.cheque_no}<div className="muted small">LKR {lkr(q.amount)}</div></th>)}</tr></thead>
+        <tbody>
+          {inv.map((s) => (
+            <tr key={s.document_no}><td>{s.document_no} <span className="muted">({lkr(s.remaining_amount)})</span></td>
+              {cheques.map((q) => <td key={q.id}><input inputMode="decimal" className="num" value={alloc[q.id]?.[s.document_no] ?? ''} onChange={(e) => set(q.id, s.document_no, e.target.value)} placeholder="0" /></td>)}</tr>
+          ))}
+          <tr className="total-row"><td>On this cheque</td>{cheques.map((q) => <td key={q.id} className="num">{lkr(qTotal(q.id))}{Number(q.amount) - qTotal(q.id) > 0.004 && <div className="muted small">{lkr(Number(q.amount) - qTotal(q.id))} unapplied</div>}</td>)}</tr>
+        </tbody>
+      </table></div>
+      {problems.map((p) => <p key={p} className="error">{p}</p>)}
+      {error && <p className="error">{error}</p>}
+      <button className="btn primary" disabled={busy || problems.length > 0} onClick={() => run(() => rpc('cc_split_cheques', { p_id: c.id, p_alloc: payload }))}>Save the split</button>
     </div>
   );
 }

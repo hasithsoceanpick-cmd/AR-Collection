@@ -3,6 +3,12 @@ import ReactDOM from 'react-dom/client';
 import 'leaflet/dist/leaflet.css';
 import './styles.css';
 import App from './App';
+import { startInstallWatch } from './lib/install';
+
+startInstallWatch();
+import { IS_DEMO } from './lib/supabase';
+
+if (IS_DEMO) document.title = 'DEMO · Collections · Round Island';
 
 ReactDOM.createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);
 

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { supabase } from './supabase';
+import { supabase, rpcLive } from './supabase';
 
 const AuthContext = createContext(null);
 
@@ -33,7 +33,12 @@ export function AuthProvider({ children }) {
     session,
     profile,
     loading: session === undefined || (session && profile === undefined),
-    role: profile?.active ? profile.role : null,
+    // Finance Admins work in a chosen view; the database checks permissions the same way.
+    role: profile?.active ? (profile.is_admin && profile.acting_role ? profile.acting_role : profile.role) : null,
+    baseRole: profile?.active ? profile.role : null,
+    isAdmin: Boolean(profile?.active && profile?.is_admin),
+    actingRole: profile?.is_admin ? profile.acting_role ?? null : null,
+    setView: async (r) => { await rpcLive('cc_set_acting_role', { p_role: r || '' }); window.location.assign('/'); },
     reloadProfile: loadProfile,
     signOut: () => supabase.auth.signOut(),
   };
