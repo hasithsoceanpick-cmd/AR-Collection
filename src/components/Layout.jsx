@@ -13,6 +13,8 @@ export function navLinks(role) {
     { to: '/collections', label: 'Collections', main: true },
     { to: '/reports', label: 'Reports', main: true },
     { to: '/deposits', label: 'Deposits' },
+    { to: '/bank-rec', label: 'Bank rec' },
+    { to: '/bc-check', label: 'BC check' },
     { to: '/account', label: 'Account' },
   ];
   return [
@@ -20,7 +22,8 @@ export function navLinks(role) {
     ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }] : []),
     ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),
     { to: '/reports', label: 'Reports', main: true },
-    ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }] : []),
+    ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }, { to: '/bc-export', label: 'Export to BC' },
+      { to: '/bc-check', label: 'BC check' }, { to: '/bank-rec', label: 'Bank rec' }] : []),
     ...(s || f ? [{ to: '/customers', label: 'Customer data' }] : []),
     ...(f ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
     { to: '/account', label: 'Account' },

@@ -594,3 +594,29 @@ body {
 .stmt.compact td.narr { min-width: 10rem; }
 .stmt.compact .stmt-sum { font-size: 0.8125rem; }
 .action .stmt { margin-top: 1rem; }
+
+/* ---------- Export to BC / BC check / Bank rec ---------- */
+.export-bar { display: grid; gap: 0.5rem; }
+.export-bar label { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; flex-wrap: wrap; }
+.export-bar input { width: 10rem; }
+.export-go { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-weight: 700; }
+.ok-box { border-left: 4px solid var(--leaf); }
+.row-picked td { background: #FFF6E8; }
+.sub-row > td { background: #F8F9FB; }
+.table.inner { font-size: 0.8125rem; margin: 0.25rem 0 0.5rem; }
+.table.inner td, .table.inner th { padding: 0.3rem 0.5rem; }
+.small { font-size: 0.8125rem; }
+.check.inline { display: inline-flex; margin-left: 0.5rem; font-weight: 400; }
+.pill { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; border: 1.5px solid; }
+.pill.ok { color: var(--leaf-ink); border-color: var(--leaf-ink); background: #F1F8EC; }
+.pill.warn { color: var(--orange-ink); border-color: var(--orange-ink); background: #FFF6E8; }
+.pill.bad { color: var(--red); border-color: var(--red); background: #FDECEC; }
+.list-head .btn { margin-left: auto; }
+.rec-pick { max-width: 560px; margin-bottom: 1rem; }
+.rec-summary .summary-table { max-width: 560px; }
+.summary-table td { padding: 0.35rem 0.5rem; }
+.summary-table .total-row td { font-weight: 700; border-top: 2px solid var(--ink); }
+.rec-list { max-height: 60vh; overflow: auto; }
+td.num.out { color: var(--red); }
+.sticky-bar { position: sticky; top: 64px; z-index: 5; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; border-left: 4px solid var(--sky); }
+.split-table input { width: 8rem; text-align: right; }

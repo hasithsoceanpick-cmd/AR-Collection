@@ -81,7 +81,8 @@ function toNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-const toText = (v) => (v == null ? '' : String(v).trim());
+// BC exports use non-breaking spaces in text; treat them as ordinary spaces.
+const toText = (v) => (v == null ? '' : String(v).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim());
 const isTrue = (v) => v === true || ['true', 'yes', '1'].includes(String(v).trim().toLowerCase());
 
 function missingMessage(kind, required) {
@@ -149,6 +150,79 @@ export async function parseLedger(file) {
   }
   return { rows: out, skippedClosed, customers: new Set(out.map((r) => r.customer_no)).size,
     hasOriginal: h.map.original_amount !== undefined };
+}
+
+// ---------- BC ledgers used for the posting check and the bank reconciliation ----------
+async function readAllSheets(file) {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  return wb.SheetNames.map((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }));
+}
+function findSheet(sheets, columns, required) {
+  for (const rows of sheets) { const h = mapHeader(rows, columns, required); if (h) return { rows, h }; }
+  return null;
+}
+
+const BANK_LEDGER_COLUMNS = {
+  entry_no: ['entryno'], posting_date: ['postingdate'], bank_code: ['bankaccountno'], document_type: ['documenttype'],
+  document_no: ['documentno'], ext_doc_no: ['externaldocumentno'], description: ['description'], comment: ['comment'],
+  amount: ['amount', 'amountlcy'], running_balance: ['runningbalance'], bal_account_type: ['balaccounttype'],
+  bal_account_no: ['balaccountno'], reversed: ['reversed'], source_code: ['sourcecode'],
+};
+const BANK_LEDGER_REQUIRED = { entry_no: 'Entry No.', posting_date: 'Posting Date', bank_code: 'Bank Account No.', document_no: 'Document No.', amount: 'Amount' };
+
+// Bank Account Ledger Entries (BC → Open in Excel).
+export async function parseBankLedger(file) {
+  const found = findSheet(await readAllSheets(file), BANK_LEDGER_COLUMNS, BANK_LEDGER_REQUIRED);
+  if (!found) throw new Error(missingMessage('Bank Account Ledger Entries', BANK_LEDGER_REQUIRED));
+  const { rows, h } = found;
+  const get = (row, k) => (h.map[k] === undefined ? null : row[h.map[k]]);
+  const out = [];
+  for (const row of rows.slice(h.row + 1)) {
+    const entry = toNumber(get(row, 'entry_no'));
+    const date = toISODate(get(row, 'posting_date'));
+    if (!entry || !date) continue;
+    out.push({
+      entry_no: entry, posting_date: date, bank_code: toText(get(row, 'bank_code')),
+      document_type: toText(get(row, 'document_type')), document_no: toText(get(row, 'document_no')),
+      ext_doc_no: toText(get(row, 'ext_doc_no')), description: toText(get(row, 'description')), comment: toText(get(row, 'comment')),
+      amount: toNumber(get(row, 'amount')) ?? 0, running_balance: toNumber(get(row, 'running_balance')),
+      bal_account_type: toText(get(row, 'bal_account_type')), bal_account_no: toText(get(row, 'bal_account_no')),
+      reversed: isTrue(get(row, 'reversed')), source_code: toText(get(row, 'source_code')),
+    });
+  }
+  if (!out.length) throw new Error('The file has the right columns but no entries in it.');
+  return out;
+}
+
+const CUST_DETAIL_COLUMNS = {
+  entry_no: ['entryno'], posting_date: ['postingdate'], entry_type: ['entrytype'], document_type: ['documenttype'],
+  document_no: ['documentno'], customer_no: ['customerno'], amount: ['amountlcy', 'amount'], cust_ledger_entry_no: ['custledgerentryno'],
+};
+const CUST_DETAIL_REQUIRED = { entry_no: 'Entry No.', entry_type: 'Entry Type', document_no: 'Document No.', cust_ledger_entry_no: 'Cust. Ledger Entry No.' };
+
+// Detailed Customer Ledger Entries (BC → Open in Excel): payments and how they were applied.
+export async function parseDetailedCustLedger(file) {
+  const found = findSheet(await readAllSheets(file), CUST_DETAIL_COLUMNS, CUST_DETAIL_REQUIRED);
+  if (!found) throw new Error(missingMessage('Detailed Customer Ledger Entries', CUST_DETAIL_REQUIRED));
+  const { rows, h } = found;
+  // prefer Amount (LCY) when both are present
+  const lcy = rows[h.row].findIndex((c) => norm(c) === 'amountlcy');
+  if (lcy >= 0) h.map.amount = lcy;
+  const get = (row, k) => (h.map[k] === undefined ? null : row[h.map[k]]);
+  const out = [];
+  for (const row of rows.slice(h.row + 1)) {
+    const entry = toNumber(get(row, 'entry_no'));
+    if (!entry) continue;
+    out.push({
+      entry_no: entry, posting_date: toISODate(get(row, 'posting_date')), entry_type: toText(get(row, 'entry_type')),
+      document_type: toText(get(row, 'document_type')), document_no: toText(get(row, 'document_no')),
+      customer_no: toText(get(row, 'customer_no')), amount: toNumber(get(row, 'amount')) ?? 0,
+      cust_ledger_entry_no: toNumber(get(row, 'cust_ledger_entry_no')),
+    });
+  }
+  if (!out.length) throw new Error('The file has the right columns but no entries in it.');
+  return out;
 }
 
 // Supabase returns at most 1,000 rows per request; page through larger tables.

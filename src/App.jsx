@@ -17,6 +17,9 @@ import Reports from './pages/Reports';
 import Bank from './pages/Bank';
 import More from './pages/More';
 import Overview from './pages/Overview';
+import BcExport from './pages/BcExport';
+import BcCheck from './pages/BcCheck';
+import BankRec from './pages/BankRec';
 
 function Gate() {
   const { session, loading, role } = useAuth();
@@ -30,6 +33,9 @@ function Gate() {
         <Route index element={role === 'executive' ? <Overview /> : <List />} />
         <Route path="collections" element={<List />} />
         {(role === 'finance' || role === 'executive') && <Route path="overview" element={<Overview />} />}
+        {role === 'finance' && <Route path="bc-export" element={<BcExport />} />}
+        {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
+        {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
         {canCreate && <Route path="new" element={<CollectionForm />} />}
         <Route path="c/:id" element={<Detail />} />
         {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}

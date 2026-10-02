@@ -30,9 +30,9 @@ export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer' };
 
 // Is the next move on this item the current user's?
 export function waitingOnMe(c, role, userId, isAdmin = false) {
-  if (role === 'finance') return ['submitted', 'collected', 'deposited', 'review'].includes(c.status);
+  if (role === 'finance') return ['submitted', 'deposited', 'review'].includes(c.status) || (c.status === 'collected' && !(c.split_needed && !c.split_at));
   if (role === 'driver') return (c.driver_id === userId || (isAdmin && c.driver_id)) && ['assigned', 'received'].includes(c.status);
-  if (role === 'sales') return (c.created_by === userId || isAdmin) && c.status === 'relink';
+  if (role === 'sales') return (c.created_by === userId || isAdmin) && (c.status === 'relink' || (c.status === 'collected' && c.split_needed && !c.split_at));
   return false;
 }
 
@@ -40,7 +40,7 @@ export function nextStepText(c) {
   switch (c.status) {
     case 'submitted': return 'Finance to assign a driver';
     case 'assigned':  return 'Driver to collect';
-    case 'collected': return 'Driver to hand cheques to finance';
+    case 'collected': return c.split_needed && !c.split_at ? "Sales to say which invoices each cheque pays" : 'Driver to hand cheques to finance';
     case 'received':  return 'Cheques to be deposited';
     case 'deposited': return 'Finance to match the slip to the bank';
     case 'review':    return 'Finance to review';

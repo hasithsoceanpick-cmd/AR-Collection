@@ -10,7 +10,7 @@ import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
 import StatementView from '../components/StatementView';
 import {
-  AssignPanel, CollectPanel, ReceivePanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
+  AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
 } from './actions';
 
 export default function Detail() {
@@ -120,7 +120,9 @@ export default function Detail() {
       {/* The action for whoever is next */}
       {!isTransfer && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
       {!isTransfer && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
+      {!isTransfer && c.split_needed && !c.split_at && role === 'sales' && isCreator && cheques.length > 1 && <SplitPanel c={c} cheques={cheques} onDone={load} />}
       {!isTransfer && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
+      {!isTransfer && c.split_needed && c.split_at && <SplitSummary cheques={cheques} />}
       {!isTransfer && (isDriver || isFinance) && c.status === 'received' && (
         <div className="action quiet">
           <Link className="btn primary" to="/deposits">Record the deposit slip</Link>
@@ -276,5 +278,22 @@ export default function Detail() {
         </div>
       )}
     </section>
+  );
+}
+
+function SplitSummary({ cheques }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    db.from('cheque_allocations').select('cheque_id, document_no, amount').in('cheque_id', cheques.map((q) => q.id)).order('id')
+      .then(({ data }) => setRows(data ?? []));
+  }, [cheques]);
+  if (!rows) return null;
+  return (
+    <div className="facts">
+      <h2>Sales' split of invoices across the cheques</h2>
+      <ul className="plain">{cheques.map((q) => (
+        <li key={q.id}>Cheque {q.cheque_no} (LKR {lkr(q.amount)}): {rows.filter((r) => r.cheque_id === q.id).map((r) => `${r.document_no} ${lkr(r.amount)}`).join(', ') || 'nothing'}</li>
+      ))}</ul>
+    </div>
   );
 }
