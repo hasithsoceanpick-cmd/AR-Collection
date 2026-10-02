@@ -620,3 +620,5 @@ body {
 td.num.out { color: var(--red); }
 .sticky-bar { position: sticky; top: 64px; z-index: 5; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; border-left: 4px solid var(--sky); }
 .split-table input { width: 8rem; text-align: right; }
+
+.method-pick { border: 0; padding: 0; margin: 0; display: grid; gap: 0.35rem; }

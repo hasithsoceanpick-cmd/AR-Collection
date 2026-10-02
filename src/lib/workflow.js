@@ -43,7 +43,7 @@ export function nextStepText(c) {
     case 'collected': return c.split_needed && !c.split_at ? "Sales to say which invoices each cheque pays" : 'Driver to hand cheques to finance';
     case 'received':  return 'Cheques to be deposited';
     case 'deposited': return 'Finance to match the slip to the bank';
-    case 'review':    return 'Finance to review';
+    case 'review':    return c.pay_method === 'cheque' ? 'Finance to review the cheque deposit' : 'Finance to review';
     case 'relink':    return 'Link to the right bank line';
     default: return '';
   }

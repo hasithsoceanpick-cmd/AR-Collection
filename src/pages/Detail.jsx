@@ -163,6 +163,7 @@ export default function Detail() {
           <h2>Bank</h2>
           {line ? (
             <dl>
+              <dt>Received as</dt><dd>{c.pay_method === 'cheque' ? `Cheque deposited by the customer, cheque ${c.cheque_no}` : 'Bank transfer or online payment'}</dd>
               <dt>Account</dt><dd>{line.account_name}</dd>
               <dt>Bank date</dt><dd>{fmtDate(line.txn_date)}</dd>
               <dt>Narration</dt><dd>{line.narration}</dd>

@@ -40,7 +40,7 @@ export default function Notifications() {
   async function openItem(n) {
     setOpen(false);
     if (!n.read_at) { await rpc('cc_mark_read', { p_ids: [n.id] }); load(); }
-    nav(n.collection_id ? `/c/${n.collection_id}` : '/deposits');
+    nav(n.link ?? (n.collection_id ? `/c/${n.collection_id}` : '/deposits'));
   }
   async function markAll() { await rpc('cc_mark_read', { p_ids: null }); load(); }
 

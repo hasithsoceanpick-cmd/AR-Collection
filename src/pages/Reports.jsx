@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import { supabase, rpc, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
@@ -151,12 +151,13 @@ function Reconciliation() {
             <h3 className="subhead">{acct}: {ls.length} lines, LKR {lkr(sum(ls, 'credit'))}</h3>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">LKR</th><th className="num">Days</th>{role === 'finance' && <th>Tag as</th>}</tr></thead>
+                <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">LKR</th><th className="num">Days</th>{(role === 'sales' || role === 'finance') && <th></th>}{role === 'finance' && <th>Tag as</th>}</tr></thead>
                 <tbody>
                   {ls.map((l) => (
                     <tr key={l.id}>
                       <td>{fmtDate(l.txn_date)}</td><td>{l.narration}</td><td>{l.reference}</td>
                       <td className="num">{lkr(l.credit)}</td><td className="num">{daysAgo(l.txn_date)}</td>
+                      {(role === 'sales' || role === 'finance') && <td><Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link></td>}
                       {role === 'finance' && <td className="tag-btns">{Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l.id, k)}>{v}</button>)}</td>}
                     </tr>
                   ))}
@@ -259,7 +260,8 @@ const TABS = [
 ];
 
 export default function Reports() {
-  const [tab, setTab] = useState('map');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get('tab') === 'recon' ? 'rec' : 'map');
   const T = TABS.find((t) => t.key === tab);
   return (
     <section className="wide">
