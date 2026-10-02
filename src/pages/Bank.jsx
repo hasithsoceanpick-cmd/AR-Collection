@@ -11,6 +11,7 @@ const FIELDS = [
   { key: 'credit', label: 'Credit (money in)' },
   { key: 'debit', label: 'Debit (money out)' },
   { key: 'amount', label: 'Single amount column (instead of debit/credit)' },
+  { key: 'direction', label: 'Cr/Dr column (with a single amount column)' },
   { key: 'balance', label: 'Balance (for the check)' },
   { key: 'reference', label: 'Bank reference' },
   { key: 'cheque', label: 'Cheque number' },

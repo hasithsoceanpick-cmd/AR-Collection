@@ -38,7 +38,7 @@ const LEDGER_REQUIRED = { customer_no: 'Customer No.', document_no: 'Document No
 async function readSheet(file) {
   const XLSX = await import('xlsx');
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array' }); // dates stay as Excel serial numbers
+  const wb = XLSX.read(buf, { type: 'array', raw: true }); // text files keep cells exactly as printed
   const ws = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 }
@@ -155,7 +155,7 @@ export async function parseLedger(file) {
 // ---------- BC ledgers used for the posting check and the bank reconciliation ----------
 async function readAllSheets(file) {
   const XLSX = await import('xlsx');
-  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
   return wb.SheetNames.map((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }));
 }
 function findSheet(sheets, columns, required) {
