@@ -15,7 +15,7 @@ export default function List() {
   const [q, setQ] = useState('');
 
   const load = useCallback(async () => {
-    const { data, error } = await db.from('collections').select(COLLECTION_SELECT)
+    const { data, error } = await db.from('collections').select(COLLECTION_SELECT).neq('kind', 'cash')
       .order('created_at', { ascending: false }).limit(500);
     if (error) setError(error.message); else setRows(data);
   }, []);

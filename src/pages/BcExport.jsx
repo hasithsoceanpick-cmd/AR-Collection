@@ -73,25 +73,30 @@ export default function BcExport() {
       const [c, s] = await Promise.all([rpc('cc_bc_candidates'), db.from('doc_series').select('next_no').eq('code', 'BAKRC').maybeSingle()]);
       setRows(c ?? []);
       if (s.data?.next_no) setNextNo(String(s.data.next_no));
-      setSel(new Set((c ?? []).filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')).map((r) => r.line_id)));
+      setSel(new Set((c ?? []).filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')).map((r) => r.key)));
     } catch (e) { setError(e.message); setRows([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const blocked = (r) => (r.built.issues ?? []).some((i) => ISSUE[i]?.block);
-  const needsNew = useMemo(() => (rows ?? []).some((r) => sel.has(r.line_id) && !r.doc_no), [rows, sel]);
-  const selTotal = (rows ?? []).filter((r) => sel.has(r.line_id)).reduce((a, r) => a + Number(r.credit), 0);
+  const needsNew = useMemo(() => (rows ?? []).some((r) => sel.has(r.key) && !r.doc_no), [rows, sel]);
+  const selTotal = (rows ?? []).filter((r) => sel.has(r.key)).reduce((a, r) => a + Number(r.credit), 0);
+  const uid = (r) => (r.cash_id ? -r.cash_id : r.line_id);   // cash receipts' unapplied ticks travel as negative ids
   const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleUnapplied = (id) => {
-    const on = !unapplied.has(id);
+  const toggleUnapplied = (r) => {
+    const id = uid(r), on = !unapplied.has(id);
     setUnapplied((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
-    setSel((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+    setSel((s) => { const n = new Set(s); on ? n.add(r.key) : n.delete(r.key); return n; });
   };
 
   const doExport = async () => {
     setBusy(true); setError(''); setResult(null); setCopied(false);
     try {
-      const res = await rpc('cc_bc_export', { p_line_ids: [...sel], p_first_no: needsNew ? Number(nextNo) : null, p_unapplied_ok: [...unapplied] });
+      const picked = (rows ?? []).filter((r) => sel.has(r.key));
+      const res = await rpc('cc_bc_export', {
+        p_line_ids: picked.filter((r) => r.line_id).map((r) => r.line_id), p_first_no: needsNew ? Number(nextNo) : null,
+        p_unapplied_ok: [...unapplied], p_cash_ids: picked.filter((r) => r.cash_id).map((r) => r.cash_id),
+      });
       setResult(res);
       if (res.docs.length) await downloadJournal(res.docs, `BC Cash Receipt Journal ${res.docs[0].doc_no}${res.docs.length > 1 ? ` to ${res.docs[res.docs.length - 1].doc_no}` : ''} (${today()}).xlsx`);
       await load();
@@ -101,15 +106,15 @@ export default function BcExport() {
 
   if (rows === null) return <p className="muted">Loading…</p>;
   const groups = [
-    { key: 'new', title: 'Ready to export', list: rows.filter((r) => !r.doc_no && !blocked(r)) },
-    { key: 'again', title: 'Exported but not in BC yet', hint: 'BC\'s bank ledger doesn\'t show these. Export again with the same numbers if they weren\'t posted.', list: rows.filter((r) => r.doc_no) },
-    { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => !r.doc_no && blocked(r)) },
+    { key: 'new', title: 'Ready to export', list: rows.filter((r) => (!r.doc_no || r.preassigned) && !blocked(r)) },
+    { key: 'again', title: 'Exported but not in BC yet', hint: 'BC doesn\'t show these yet. Export again with the same numbers if they weren\'t posted.', list: rows.filter((r) => r.doc_no && !r.preassigned) },
+    { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => (!r.doc_no || r.preassigned) && blocked(r)) },
   ];
 
   return (
     <section className="wide">
       <div className="page-head"><h1>Export to BC</h1></div>
-      <p className="lede">Closed receipts matched to a bank line. One BAKRC number per bank line, one journal line per invoice from Sales' instructions, the bank as balancing account on every line. Numbers never change once given.</p>
+      <p className="lede">Closed receipts matched to a bank line (one BAKRC number per bank line, the bank as balancing account), and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. Numbers never change once given.</p>
       {error && <p className="error">{error}</p>}
 
       {result && (
@@ -153,26 +158,26 @@ export default function BcExport() {
                       const invs = lines.map((l) => l.applies_doc_no).filter(Boolean);
                       const issues = r.built.issues ?? [];
                       return (
-                        <Fragment key={r.line_id}>
-                          <tr className={sel.has(r.line_id) ? 'row-picked' : ''}>
-                            <td><input type="checkbox" checked={sel.has(r.line_id)} disabled={blocked(r) || role !== 'finance'} onChange={() => toggle(r.line_id)} aria-label="Export this line" /></td>
+                        <Fragment key={r.key}>
+                          <tr className={sel.has(r.key) ? 'row-picked' : ''}>
+                            <td><input type="checkbox" checked={sel.has(r.key)} disabled={blocked(r) || role !== 'finance'} onChange={() => toggle(r.key)} aria-label="Export this line" /></td>
                             <td>{fmtDate(r.txn_date)}</td>
                             <td>{r.account}</td>
                             <td className="narr">{r.narration}{r.reference ? <div className="muted small">{r.reference}</div> : null}</td>
                             <td>
                               {custs.join(', ') || <span className="muted">—</span>}
                               <div className="muted small">{invs.length ? invs.join(', ') : 'no invoices'} · {lines.length} journal line{lines.length === 1 ? '' : 's'}{' '}
-                                <button className="link" onClick={() => setOpen(open === r.line_id ? null : r.line_id)}>{open === r.line_id ? 'hide' : 'show'}</button></div>
+                                <button className="link" onClick={() => setOpen(open === r.key ? null : r.key)}>{open === r.key ? 'hide' : 'show'}</button></div>
                               {issues.map((i) => <div key={i} className={ISSUE[i]?.block ? 'error small' : 'warn-text small'}>{ISSUE[i]?.text ?? i}
-                                {i === 'no_invoices' && <label className="check inline"><input type="checkbox" checked={unapplied.has(r.line_id)} disabled={role !== 'finance'} onChange={() => toggleUnapplied(r.line_id)} /> Export unapplied</label>}
+                                {i === 'no_invoices' && <label className="check inline"><input type="checkbox" checked={unapplied.has(uid(r))} disabled={role !== 'finance'} onChange={() => toggleUnapplied(r)} /> Export unapplied</label>}
                                 {i === 'cheque_map' && role === 'finance' && <button className="link" onClick={() => setMapDeposit(r.deposit_id)}>Choose</button>}
                                 {i === 'needs_split' && <> · {r.collection_id ? <Link to={`/c/${r.collection_id}`}>open</Link> : 'ask Sales'}</>}
                               </div>)}
                             </td>
                             <td className="num">{lkr(r.credit)}</td>
-                            <td>{r.doc_no ? <><strong>{r.doc_no}</strong><div className="muted small">exported {r.export_count}×</div></> : <span className="muted">new</span>}</td>
+                            <td>{r.doc_no ? <><strong>{r.doc_no}</strong><div className="muted small">{r.preassigned ? 'given at receipt' : `exported ${r.export_count}×`}</div></> : <span className="muted">new</span>}</td>
                           </tr>
-                          {open === r.line_id && (
+                          {open === r.key && (
                             <tr className="sub-row"><td></td><td colSpan={6}>
                               <table className="table inner">
                                 <thead><tr><th>Account</th><th>Description</th><th>Applies to</th><th>Ext. Doc No.</th><th>Comment</th><th className="num">Credit</th></tr></thead>

@@ -66,7 +66,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
   if (!lines.length) return <p className="muted">No statement lines uploaded for this account yet.</p>;
 
   const ins = shown.filter((l) => l.credit > 0);
-  const rec = ins.filter((l) => l.link_kind === 'deposit' || l.link_kind === 'transfer');
+  const rec = ins.filter((l) => l.link_kind === 'deposit' || l.link_kind === 'transfer' || l.link_kind === 'cash');
   const tagged = ins.filter((l) => l.link_kind === 'tag');
   const unid = ins.filter((l) => !l.link_kind);
   const sum = (a) => a.reduce((s, l) => s + Number(l.credit), 0);
@@ -108,6 +108,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
                     {isHi && <span className="this-tag">This item</span>}
                     {l.link_kind === 'transfer' && <Link to={`/c/${l.collection_id}`}>{ref(l.collection_id)} {labels.c[l.collection_id] ?? ''}</Link>}
                     {l.link_kind === 'deposit' && <Link to={`/deposits#d${l.deposit_id}`}>Slip D-{l.deposit_id}: {(labels.d[l.deposit_id] ?? []).join(', ')}</Link>}
+                    {l.link_kind === 'cash' && <Link to="/cash">Cash handed over and banked</Link>}
                     {l.link_kind === 'tag' && <>{TAGS[l.tag]}{l.tag_note ? `: ${l.tag_note}` : ''}{allowTag && <> <button className="link" disabled={busy} onClick={() => untag(l)}>undo</button></>}</>}
                     {!l.link_kind && l.credit > 0 && !isHi && (
                       <>

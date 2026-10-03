@@ -20,6 +20,7 @@ import Overview from './pages/Overview';
 import BcExport from './pages/BcExport';
 import BcCheck from './pages/BcCheck';
 import BankRec from './pages/BankRec';
+import { CashList, CashForm, CashDetail, CashReceipt } from './pages/Cash';
 
 function Gate() {
   const { session, loading, role } = useAuth();
@@ -36,6 +37,11 @@ function Gate() {
         {role === 'finance' && <Route path="bc-export" element={<BcExport />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="cash" element={<CashList />} />}
+        {role === 'sales' && <Route path="cash/new" element={<CashForm />} />}
+        {role === 'sales' && <Route path="cash/:id/edit" element={<CashForm />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="cash/:id" element={<CashDetail />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="cash/:id/receipt" element={<CashReceipt />} />}
         {canCreate && <Route path="new" element={<CollectionForm />} />}
         <Route path="c/:id" element={<Detail />} />
         {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}

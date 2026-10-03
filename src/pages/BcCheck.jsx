@@ -101,12 +101,13 @@ export default function BcCheck() {
                 <tr key={d.id}>
                   <td><strong>{d.doc_no}</strong><div className="muted small">exported {d.export_count}×</div></td>
                   <td>{fmtDate(d.posting_date)}</td>
-                  <td>{d.account?.name}</td>
+                  <td>{d.account?.name ?? 'Cash in hand'}</td>
                   <td>{[...new Set((d.lines ?? []).map((l) => l.account_name))].join(', ')}<div className="muted small">{(d.lines ?? []).map((l) => l.applies_doc_no).filter(Boolean).join(', ')}</div></td>
                   <td className="num">{lkr(d.total)}</td>
                   <td><span className={`pill ${custPending(d) ? 'warn' : st.cls}`}>{custPending(d) ? 'Posted (bank)' : st.label}</span></td>
                   <td className="small">
-                    {d.post_status === 'exported' && <>Not in BC's bank ledger. If it wasn't posted, <Link to="/bc-export">export it again</Link> (same number).</>}
+                    {d.post_status === 'exported' && d.bank_check?.status !== 'n/a' && <>Not in BC's bank ledger. If it wasn't posted, <Link to="/bc-export">export it again</Link> (same number).</>}
+                    {d.post_status === 'exported' && d.bank_check?.status === 'n/a' && <>Cash receipt: not in the uploaded customer ledger yet. Upload a newer one, or if it wasn't posted, <Link to="/bc-export">export it again</Link>.</>}
                     {custPending(d) && 'Bank side correct. The customer ledger uploaded doesn\'t include it yet: upload a newer Detailed Customer Ledger.'}
                     {d.post_status === 'posted' && !custPending(d) && <span className="muted">Bank and customer sides match{d.customer_check?.status === 'not_checked' ? ' (customer side not checked)' : ''}.</span>}
                     {problems.length > 0 && <ul className="plain">{problems.map((p) => <li key={p} className="error">{p}</li>)}</ul>}
