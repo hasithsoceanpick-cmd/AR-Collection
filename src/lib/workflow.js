@@ -7,6 +7,7 @@ export const STATUS = {
   deposited: { label: 'In bank?',     tone: 'teal' },
   review:    { label: 'To review',    tone: 'amber' },
   relink:    { label: 'Needs relink', tone: 'red' },
+  parked:    { label: 'Parked',       tone: 'grey' },
   closed:    { label: 'Closed',       tone: 'green' },
   returned:  { label: 'Returned',     tone: 'red' },
   cancelled: { label: 'Cancelled',    tone: 'grey' },
@@ -26,13 +27,13 @@ export const TRANSFER_STEPS = [
 ];
 
 export const isOpen = (c) => !['closed', 'cancelled', 'returned'].includes(c.status);
-export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer' };
+export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer', cash: 'Cash' };
 
 // Is the next move on this item the current user's?
 export function waitingOnMe(c, role, userId, isAdmin = false) {
   if (role === 'finance') return ['submitted', 'deposited', 'review'].includes(c.status) || (c.status === 'collected' && !(c.split_needed && !c.split_at));
   if (role === 'driver') return (c.driver_id === userId || (isAdmin && c.driver_id)) && ['assigned', 'received'].includes(c.status);
-  if (role === 'sales') return (c.created_by === userId || isAdmin) && (c.status === 'relink' || (c.status === 'collected' && c.split_needed && !c.split_at));
+  if (role === 'sales') return (c.created_by === userId || isAdmin) && (c.status === 'relink' || c.status === 'parked' || (c.status === 'collected' && c.split_needed && !c.split_at));
   return false;
 }
 
@@ -43,6 +44,7 @@ export function nextStepText(c) {
     case 'collected': return c.split_needed && !c.split_at ? "Sales to say which invoices each cheque pays" : 'Driver to hand cheques to finance';
     case 'received':  return 'Cheques to be deposited';
     case 'deposited': return 'Finance to match the slip to the bank';
+    case 'parked':    return 'Parked: link the bank line when it shows';
     case 'review':    return c.pay_method === 'cheque' ? 'Finance to review the cheque deposit' : 'Finance to review';
     case 'relink':    return 'Link to the right bank line';
     default: return '';

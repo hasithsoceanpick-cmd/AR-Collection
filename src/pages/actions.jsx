@@ -240,7 +240,7 @@ export function TransferReviewPanel({ c, line, onDone }) {
 }
 
 // Transfers — relink after being sent back or reopened
-export function RelinkPanel({ c, onDone }) {
+export function RelinkPanel({ c, onDone, parked = false }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState(c.account_id ? String(c.account_id) : '');
   const [line, setLine] = useState(null);
@@ -250,7 +250,8 @@ export function RelinkPanel({ c, onDone }) {
   }, []);
   return (
     <div className="action">
-      <h2>Link to the right bank line</h2>
+      <h2>{parked ? 'Link the bank line and send to finance' : 'Link to the right bank line'}</h2>
+      {parked && <p className="hint">Parked: finance can't see this yet. When the payment shows on the bank statement in the app, pick its line here (exact amount LKR {lkr(c.expected_amount)}). If the bank amount differs, edit the entry first.</p>}
       <label className="field"><span className="flabel">Paid into</span>
         <select value={accountId} onChange={(e) => { setAccountId(e.target.value); setLine(null); }}>
           <option value="">Choose the bank account</option>
@@ -258,7 +259,7 @@ export function RelinkPanel({ c, onDone }) {
         </select></label>
       {accountId && <BankLinePicker accountId={Number(accountId)} exact={c.expected_amount} value={line?.id} onChange={setLine} />}
       {error && <p className="error">{error}</p>}
-      <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc('cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
+      <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc(parked ? 'cc_send_parked' : 'cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
         Link and send to finance
       </button>
       {accountId && <StatementView key={accountId} accountId={Number(accountId)} highlightIds={line ? [line.id] : []} focusDate={line?.txn_date} compact />}

@@ -75,7 +75,7 @@ export default function Detail() {
   const canEdit = !isTransfer && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
   const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
-    || (role === 'sales' && isCreator && ['submitted', 'review', 'relink'].includes(c.status));
+    || (role === 'sales' && isCreator && ['submitted', 'review', 'relink', 'parked'].includes(c.status));
   const canReturn = isFinance && !isTransfer && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
   const shownAmount = c.collected_amount ?? c.expected_amount;
@@ -116,6 +116,7 @@ export default function Detail() {
         </div>
       )}
       {c.status === 'relink' && <div className="notice">This transfer isn't linked to a bank line.</div>}
+      {c.status === 'parked' && <div className="notice">Parked: only you can see this. Finance sees it once you link the bank line and send it.</div>}
 
       {/* The action for whoever is next */}
       {!isTransfer && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
@@ -132,6 +133,12 @@ export default function Detail() {
       {!isTransfer && isFinance && c.status === 'deposited' && deposit && !deposit.closed_at && <DepositLink deposit={deposit} onDone={load} />}
       {isTransfer && isFinance && c.status === 'review' && <TransferReviewPanel c={c} line={line} onDone={load} />}
       {isTransfer && c.status === 'relink' && (isFinance || (role === 'sales' && isCreator)) && <RelinkPanel c={c} onDone={load} />}
+      {isTransfer && c.status === 'parked' && role === 'sales' && isCreator && (
+        <>
+          <RelinkPanel c={c} onDone={load} parked />
+          <p><Link className="btn" to={`/transfer?edit=${c.id}`}>Edit the parked entry</Link></p>
+        </>
+      )}
 
       {(c.settlement?.length > 0 || c.settlement_instructions) && (
         <div className="facts">
