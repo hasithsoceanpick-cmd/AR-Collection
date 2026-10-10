@@ -116,3 +116,15 @@ src/pages/actions.jsx   Step panels: assign, collect, receive, deposit, close, c
 src/pages/Photos.jsx    Backup and delete photos (finance)
 src/pages/Users.jsx     Roles and access (finance)
 ```
+
+## Demo section
+
+The header has a **Live / Demo** switch. Demo is a complete, separate copy of the database
+(schema `demo`) and photo storage (bucket `cheques-demo`): every page works the same, and
+nothing done there reaches live. People and passwords are shared.
+
+Set up once, in order: `004_multi_line_slips.sql`, `005_demo_schema.sql`, then in Supabase
+Project Settings → Data API → Exposed schemas add `demo` and save, then `006_demo_september_data.sql`.
+Running 006 again resets the demo to its September starting point.
+
+To remove the demo completely: `drop schema demo cascade;` and delete the `cheques-demo` bucket.
