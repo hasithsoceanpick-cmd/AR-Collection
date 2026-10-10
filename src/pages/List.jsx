@@ -71,6 +71,7 @@ export default function List() {
           <div className="row">
             <Link className="btn primary" to="/new">New collection</Link>
             <Link className="btn" to="/transfer">Record transfer</Link>
+            <Link className="btn" to="/card">Record card payment</Link>
           </div>
         )}
       </div>
@@ -108,6 +109,7 @@ export default function List() {
                 <span className="row-meta">
                   <span>{ref(c.id)}</span>
                   {c.kind === 'transfer' && <span className="kind-tag">Transfer</span>}
+                  {c.kind === 'card' && <span className="kind-tag">Card</span>}
                   {c.notes?.startsWith('Practice scenario') && <span className="practice-tag">Practice</span>}
                   {c.customer_no && <span>{c.customer_no}</span>}
                   {c.invoice_refs && <span>Inv. {c.invoice_refs}</span>}

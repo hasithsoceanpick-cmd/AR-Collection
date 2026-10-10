@@ -25,9 +25,14 @@ export const TRANSFER_STEPS = [
   { status: 'review', label: 'Recorded and linked' },
   { status: 'closed', label: 'Reviewed, closed' },
 ];
+export const CARD_STEPS = [
+  { status: 'parked', label: 'Recorded' },
+  { status: 'review', label: 'Set off on the merchant statement' },
+  { status: 'closed', label: 'Reviewed, closed' },
+];
 
 export const isOpen = (c) => !['closed', 'cancelled', 'returned'].includes(c.status);
-export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer', cash: 'Cash' };
+export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer', cash: 'Cash', card: 'Card' };
 
 // Is the next move on this item the current user's?
 export function waitingOnMe(c, role, userId, isAdmin = false) {
@@ -44,8 +49,8 @@ export function nextStepText(c) {
     case 'collected': return c.split_needed && !c.split_at ? "Sales to say which invoices each cheque pays" : 'Driver to hand cheques to finance';
     case 'received':  return 'Cheques to be deposited';
     case 'deposited': return 'Finance to match the slip to the bank';
-    case 'parked':    return 'Parked: link the bank line when it shows';
-    case 'review':    return c.pay_method === 'cheque' ? 'Finance to review the cheque deposit' : 'Finance to review';
+    case 'parked':    return c.kind === 'card' ? 'Parked: set it off when the merchant statement shows' : 'Parked: link the bank line when it shows';
+    case 'review':    return c.kind === 'card' ? 'Finance to review the card payment' : c.pay_method === 'cheque' ? 'Finance to review the cheque deposit' : 'Finance to review';
     case 'relink':    return 'Link to the right bank line';
     default: return '';
   }

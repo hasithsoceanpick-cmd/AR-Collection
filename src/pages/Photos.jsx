@@ -72,7 +72,7 @@ export default function Photos() {
         for (const f of filesOf(c)) {
           const ext = /\.pdf$/i.test(f.path) ? 'pdf' : 'jpg';
           const name = f.kind === 'cheque' ? `${ref(c.id)}_chq-${safe(f.q.cheque_no)}_LKR-${f.q.amount}.${ext}`
-            : f.kind === 'receipt' ? `${ref(c.id)}_transfer-receipt.${ext}`
+            : f.kind === 'receipt' ? `${ref(c.id)}_${c.kind === 'card' ? 'card-slip' : 'transfer-receipt'}.${ext}`
             : `${ref(c.id)}_deposit-slip${c.deposit ? `-D${c.deposit.id}` : ''}.${ext}`;
           const file = await add(f.path, unique(`${folder}/${name}`));
           lines.push([...base, f.q?.cheque_no ?? '', f.q?.bank ?? '', f.q?.cheque_date ?? '', f.q?.amount ?? '', personName(c.driver),

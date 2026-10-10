@@ -190,16 +190,17 @@ export function CancelPanel({ c, onDone }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const { busy, error, run } = useAction(onDone);
-  if (!open) return <button className="btn ghost danger-text" onClick={() => setOpen(true)}>Cancel collection</button>;
+  const what = c.kind === 'cheque' ? 'collection' : 'payment';
+  if (!open) return <button className="btn ghost danger-text" onClick={() => setOpen(true)}>Cancel {what}</button>;
   return (
     <form className="action cancel-box" onSubmit={(e) => { e.preventDefault(); run(() => rpc('cc_cancel', { p_id: c.id, p_reason: reason })); }}>
-      <h2>Cancel this collection?</h2>
+      <h2>Cancel this {what}?</h2>
       <label className="field"><span className="flabel">Reason</span>
         <input required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Customer paid by bank transfer" />
       </label>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <button className="btn danger" disabled={busy}>Cancel collection</button>
+        <button className="btn danger" disabled={busy}>Cancel {what}</button>
         <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Keep it</button>
       </div>
     </form>

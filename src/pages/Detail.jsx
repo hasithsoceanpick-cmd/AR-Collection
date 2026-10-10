@@ -12,6 +12,7 @@ import StatementView from '../components/StatementView';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
 } from './actions';
+import { useCardDraft, CardFacts, CardSetOffPanel, CardReviewPanel, CardReopenPanel } from './cardActions';
 
 export default function Detail() {
   const { id } = useParams();
@@ -54,6 +55,8 @@ export default function Detail() {
     }
   }, [id]);
 
+  const draft = useCardDraft(c);
+
   useEffect(() => {
     load();
     const ch = supabase.channel(`collection-${id}`)
@@ -69,14 +72,16 @@ export default function Detail() {
   );
 
   const isTransfer = c.kind === 'transfer';
+  const isCard = c.kind === 'card';
+  const isCheque = c.kind === 'cheque';
   const isDriver = role === 'driver' && (c.driver_id === uid || isAdmin);
   const isFinance = role === 'finance';
   const isCreator = c.created_by === uid || isAdmin;
-  const canEdit = !isTransfer && ((role === 'sales' && isCreator && c.status === 'submitted')
+  const canEdit = isCheque && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
   const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
     || (role === 'sales' && isCreator && ['submitted', 'review', 'relink', 'parked'].includes(c.status));
-  const canReturn = isFinance && !isTransfer && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
+  const canReturn = isFinance && isCheque && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
   const shownAmount = c.collected_amount ?? c.expected_amount;
 
@@ -86,7 +91,7 @@ export default function Detail() {
 
       <div className="slip">
         <div className="slip-top">
-          <span className="slip-ref">{ref(c.id)} · {isTransfer ? 'Bank transfer' : 'Cheque collection'}</span>
+          <span className="slip-ref">{ref(c.id)} · {isTransfer ? 'Bank transfer' : isCard ? 'Card payment' : 'Cheque collection'}</span>
           <span className="slip-date">Recorded {fmtDate(c.created_at)} by {personName(c.creator)}</span>
         </div>
         <div className="slip-payee">
@@ -94,7 +99,7 @@ export default function Detail() {
           <h1>{c.customer_name}</h1>
         </div>
         <div className="slip-amount">
-          <span className="slip-cap">{isTransfer ? 'Transferred' : c.collected_amount != null ? 'Collected' : 'Expected'}</span>
+          <span className="slip-cap">{isTransfer ? 'Transferred' : isCard ? 'Paid by card' : c.collected_amount != null ? 'Collected' : 'Expected'}</span>
           <span className="slip-figure">LKR {lkr(shownAmount)}</span>
           {c.amount_changed && <span className="slip-changed">Expected LKR {lkr(c.expected_amount)}. The amount changed at collection.</span>}
         </div>
@@ -116,21 +121,23 @@ export default function Detail() {
         </div>
       )}
       {c.status === 'relink' && <div className="notice">This transfer isn't linked to a bank line.</div>}
-      {c.status === 'parked' && <div className="notice">Parked: only you can see this. Finance sees it once you link the bank line and send it.</div>}
+      {c.status === 'parked' && <div className="notice">Parked: only you can see this. Finance sees it once you {isCard ? 'set it off against the merchant statement' : 'link the bank line'} and send it.</div>}
 
       {/* The action for whoever is next */}
-      {!isTransfer && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
-      {!isTransfer && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
-      {!isTransfer && c.split_needed && !c.split_at && role === 'sales' && isCreator && cheques.length > 1 && <SplitPanel c={c} cheques={cheques} onDone={load} />}
-      {!isTransfer && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
-      {!isTransfer && c.split_needed && c.split_at && <SplitSummary cheques={cheques} />}
-      {!isTransfer && (isDriver || isFinance) && c.status === 'received' && (
+      {isCheque && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
+      {isCheque && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
+      {isCheque && c.split_needed && !c.split_at && role === 'sales' && isCreator && cheques.length > 1 && <SplitPanel c={c} cheques={cheques} onDone={load} />}
+      {isCheque && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
+      {isCheque && c.split_needed && c.split_at && <SplitSummary cheques={cheques} />}
+      {isCheque && (isDriver || isFinance) && c.status === 'received' && (
         <div className="action quiet">
           <Link className="btn primary" to="/deposits">Record the deposit slip</Link>
           <span className="hint">Deposits are recorded per slip, so several collections can go on one.</span>
         </div>
       )}
-      {!isTransfer && isFinance && c.status === 'deposited' && deposit && !deposit.closed_at && <DepositLink deposit={deposit} onDone={load} />}
+      {isCheque && isFinance && c.status === 'deposited' && deposit && !deposit.closed_at && <DepositLink deposit={deposit} onDone={load} />}
+      {isCard && c.status === 'parked' && role === 'sales' && isCreator && <CardSetOffPanel c={c} onDone={load} />}
+      {isCard && isFinance && c.status === 'review' && <CardReviewPanel c={c} draft={draft} onDone={load} />}
       {isTransfer && isFinance && c.status === 'review' && <TransferReviewPanel c={c} line={line} onDone={load} />}
       {isTransfer && c.status === 'relink' && (isFinance || (role === 'sales' && isCreator)) && <RelinkPanel c={c} onDone={load} />}
       {isTransfer && c.status === 'parked' && role === 'sales' && isCreator && (
@@ -186,7 +193,9 @@ export default function Detail() {
         </div>
       )}
 
-      {!isTransfer && (
+      {isCard && <CardFacts c={c} draft={draft} photosGone={photosGone} />}
+
+      {isCheque && (
         <div className="facts">
           <h2>Where and who</h2>
           <dl>
@@ -280,7 +289,8 @@ export default function Detail() {
       {(canEdit || canCancel || canReturn || (isFinance && c.status === 'closed')) && (
         <div className="quiet-actions">
           {canEdit && <Link className="btn ghost" to={`/c/${c.id}/edit`}>Edit details</Link>}
-          {isFinance && c.status === 'closed' && <ReopenPanel c={c} onDone={load} />}
+          {isFinance && c.status === 'closed' && !isCard && <ReopenPanel c={c} onDone={load} />}
+          {isFinance && c.status === 'closed' && isCard && <CardReopenPanel c={c} draft={draft} onDone={load} />}
           {canReturn && <ReturnChequePanel c={c} cheques={cheques.filter((q) => !q.returned_at)} onDone={load} />}
           {canCancel && <CancelPanel c={c} onDone={load} />}
         </div>

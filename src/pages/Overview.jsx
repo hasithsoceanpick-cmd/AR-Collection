@@ -179,7 +179,7 @@ export default function Overview() {
       {/* ---------------- Collections ---------------- */}
       <h2 className="ov-title">Collections in progress</h2>
       <div className="kpi-grid">
-        <Kpi label="In progress" value={`LKR ${M(P.total.amount)}`} sub={`${P.total.items} cheques and transfers`} />
+        <Kpi label="In progress" value={`LKR ${M(P.total.amount)}`} sub={`${P.total.items} cheques, transfers and card payments`} />
         <Kpi label="Pickups overdue" value={P.overdue_pickups.length} sub="assigned, collection date passed" tone={P.overdue_pickups.length ? 'warn' : null} />
         <Kpi label="Stuck over 5 days" value={P.stuck.length} sub="in the same stage" tone={P.stuck.length ? 'warn' : null} />
         <Kpi label={`Returned in ${monthLabel.split(' ')[0]}`} value={P.returned.items} sub={`LKR ${lkr(P.returned.amount)}`} tone={P.returned.items ? 'warn' : null} />

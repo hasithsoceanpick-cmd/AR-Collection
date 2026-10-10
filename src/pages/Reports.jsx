@@ -144,7 +144,7 @@ function Reconciliation() {
 
       <div className="facts">
         <h2>Money in the bank, not yet identified</h2>
-        <p className="hint">Every one of these should become a receipt in the app, or be tagged by finance as not a customer receipt.</p>
+        <p className="hint">Every one of these should become a receipt in the app, or be tagged by finance as not a customer receipt. HNB merchant settlements (card sales) clear when finance adds the merchant statement that shows their batch.</p>
         {lines.length === 0 && <p className="muted">Everything is identified.</p>}
         {Object.entries(byAcct).map(([acct, ls]) => (
           <div key={acct}>
@@ -157,7 +157,9 @@ function Reconciliation() {
                     <tr key={l.id}>
                       <td>{fmtDate(l.txn_date)}</td><td>{l.narration}</td><td>{l.reference}</td>
                       <td className="num">{lkr(l.credit)}</td><td className="num">{daysAgo(l.txn_date)}</td>
-                      {(role === 'sales' || role === 'finance') && <td><Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link></td>}
+                      {(role === 'sales' || role === 'finance') && <td>{/MERCHANT SLIPS/i.test(l.narration)
+                        ? <Link className="small" to="/merchant" title="HNB card sales, paid in batches. Finance matches it to a merchant statement batch.">Card batch: merchant statement</Link>
+                        : <Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link>}</td>}
                       {role === 'finance' && <td className="tag-btns">{Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l.id, k)}>{v}</button>)}</td>}
                     </tr>
                   ))}

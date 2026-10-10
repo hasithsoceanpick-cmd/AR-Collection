@@ -135,7 +135,7 @@ function BankCash({ inHand, onDone }) {
   useEffect(() => {
     setLine(null); setLines([]);
     if (!accountId) return;
-    db.from('bank_credits').select('id, txn_date, narration, reference, credit').eq('account_id', accountId).is('link_kind', null)
+    db.from('bank_credits').select('id, txn_date, narration, reference, credit').eq('account_id', accountId).is('link_kind', null).not('narration', 'ilike', '%MERCHANT SLIPS%')
       .order('txn_date', { ascending: false }).limit(300).then(({ data }) => setLines(data ?? []));
   }, [accountId]);
   // oldest receipts first, up to the deposit amount

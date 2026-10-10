@@ -655,3 +655,58 @@ td.num.out { color: var(--red); }
   .receipt { border: 0; max-width: none; padding: 0; }
   @page { size: A4; margin: 15mm; }
 }
+
+/* ---------- HNB merchant statements and card payments ---------- */
+.mono { font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.mbatches { display: grid; gap: 0.75rem; margin: 1rem 0 1.25rem; }
+.mbatch { padding: 0; overflow: hidden; }
+.mbatch.focus { outline: 2px solid var(--sky); outline-offset: 2px; }
+.mb-head { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; padding: 0.85rem 1.1rem; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; min-height: 48px; }
+.mb-head:hover { background: #F7FAF7; }
+.mb-no { font-weight: 700; font-variant-numeric: tabular-nums; }
+.mb-date { color: var(--muted); }
+.mb-meta { color: var(--muted); font-size: 0.9375rem; flex: 1 1 auto; }
+.mb-amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mb-body { padding: 0 1.1rem 1.1rem; border-top: 1px solid var(--rule); }
+.mb-facts { margin: 1rem 0 !important; }
+.mb-link { margin-top: 0.5rem; display: grid; gap: 0.5rem; }
+.ms-setoff { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; align-items: center; }
+.table tr.row-open td { background: #FFFBF2; }
+.ms-shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); gap: 1rem; }
+.ms-shots img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 4px; }
+.ms-files { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.5rem; }
+.ms-files li { display: grid; grid-template-columns: 64px 1fr auto; gap: 0.75rem; align-items: center; padding: 0.4rem; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); }
+.ms-files img { width: 64px; height: 64px; object-fit: cover; object-position: top; border-radius: 4px; }
+.ms-progress { display: grid; gap: 0.4rem; margin: 0.75rem 0; }
+.ms-bar { height: 10px; background: #E7EAF0; border-radius: 999px; overflow: hidden; }
+.ms-bar i { display: block; height: 100%; background: var(--navy); transition: width 0.3s; }
+.ms-review { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.ms-main { min-width: 0; display: grid; gap: 1rem; align-content: start; }
+.ms-main > .page-head, .ms-main > p, .ms-main > .back { margin: 0; }
+.ms-shots-aside { display: grid; gap: 0.75rem; }
+.ms-shots-aside figure { margin: 0; }
+.ms-shots-aside img { width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 4px; background: #fff; }
+@media (min-width: 1200px) {
+  .ms-review { grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); }
+  .ms-shots-aside { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto; padding-right: 4px; }
+  .is-demo .ms-shots-aside { top: 112px; max-height: calc(100vh - 132px); }
+}
+.ms-batch { display: grid; gap: 0.6rem; }
+.ms-batch-head { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; }
+.ms-batch-head .inline-field { flex-wrap: wrap; font-size: 0.9375rem; }
+.ms-batch-head .inline-field input { width: auto; min-width: 9.5rem; }
+.ms-grid input { width: 100%; min-width: 0 !important; padding: 0.35rem 0.45rem; font-size: 0.9375rem; }
+.ms-grid input.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ms-grid td { padding: 0.3rem 0.35rem; }
+.ms-grid td:nth-child(1) { min-width: 9.5rem; }
+.ms-grid td:nth-child(2) { width: 6.2rem; min-width: 6.2rem; }
+.ms-grid td:nth-child(3) { width: 4.8rem; min-width: 4.8rem; }
+.ms-grid td:nth-child(7) { width: 2rem; text-align: center; }
+.ms-x { font-size: 1rem; text-decoration: none; padding: 0.25rem; }
+.ms-grid td:nth-child(4), .ms-grid td:nth-child(5), .ms-grid td:nth-child(6) { min-width: 6.5rem; }
+.table tr.bad td { background: #FDECEA; }
+.ms-save dl { grid-template-columns: max-content 1fr; }
+.ms-raw { white-space: pre-wrap; font-size: 0.8125rem; background: #F7F8FA; padding: 0.75rem; border-radius: 4px; overflow-x: auto; }
+.mb-body .inline-field input { width: auto; min-width: 6rem; }
+@media (max-width: 640px) { .hide-sm { display: none; } }
