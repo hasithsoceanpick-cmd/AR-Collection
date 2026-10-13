@@ -12,6 +12,33 @@ const STATUS = {
 };
 const CHUNK = 2000;
 
+// Finance: treat a document as posted even though the check doesn't confirm it, with the reason.
+function PostAnyway({ d, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!open) return <button className="btn small" onClick={() => setOpen(true)}>Post anyway</button>;
+  const go = async (e) => {
+    e.preventDefault(); setBusy(true); setError('');
+    try { await rpc('cc_bc_accept', { p_doc_id: d.id, p_note: note }); await onDone(); }
+    catch (err) { setError(err.message); setBusy(false); }
+  };
+  return (
+    <form className="post-anyway" onSubmit={go}>
+      <label className="field"><span className="flabel">Why can {d.doc_no} be treated as posted?</span>
+        <textarea required rows="2" value={note} onChange={(e) => setNote(e.target.value)}
+          placeholder="E.g. posted in BC with the customers swapped; corrected by journal GJ-0123" /></label>
+      <p className="hint">It then counts as posted everywhere, stays posted when the ledgers are uploaded again, and can be undone.</p>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="btn small primary" disabled={busy || !note.trim()}>Post anyway</button>
+        <button type="button" className="link" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 function Upload({ title, hint, parse, fn, onDone }) {
   const [busy, setBusy] = useState(''); const [msg, setMsg] = useState(''); const [error, setError] = useState('');
   const go = async (file) => {
@@ -45,24 +72,27 @@ export default function BcCheck() {
   const { role } = useAuth();
   const [docs, setDocs] = useState(null);
   const [uploads, setUploads] = useState([]);
+  const [people, setPeople] = useState({});
   const [tab, setTab] = useState('attention');
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     try {
-      const d = await fetchAll(() => db.from('bc_docs').select('id, doc_no, posting_date, total, post_status, bank_check, customer_check, checked_at, export_count, last_exported_at, account:bank_accounts(name), lines:bc_doc_lines(account_name, applies_doc_no)').order('doc_no', { ascending: false }));
+      const d = await fetchAll(() => db.from('bc_docs').select('id, doc_no, posting_date, total, post_status, bank_check, customer_check, checked_at, export_count, last_exported_at, accepted_at, accepted_by, accept_note, account:bank_accounts(name), lines:bc_doc_lines(account_name, applies_doc_no)').order('doc_no', { ascending: false }));
       const u = await db.from('bc_uploads').select('kind, file_name, rows_in, rows_new, done_at').order('done_at', { ascending: false }).limit(6);
+      const p = await db.from('profiles').select('id, full_name, email');
       setDocs(d); setUploads(u.data ?? []);
+      setPeople(Object.fromEntries((p.data ?? []).map((x) => [x.id, x.full_name || x.email])));
     } catch (e) { setError(e.message); setDocs([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
   if (docs === null) return <p className="muted">Loading…</p>;
 
-  const custPending = (d) => d.post_status === 'posted' && d.customer_check?.status === 'missing';
-  const needs = (d) => d.post_status !== 'posted' || custPending(d);
-  const counts = { posted: docs.filter((d) => d.post_status === 'posted' && !custPending(d)).length, attention: docs.filter(needs).length, all: docs.length };
-  const shown = docs.filter((d) => (tab === 'all' || (tab === 'attention' ? needs(d) : d.post_status === 'posted' && !custPending(d))))
+  const custPending = (d) => !d.accepted_at && d.post_status === 'posted' && d.customer_check?.status === 'missing';
+  const needs = (d) => !d.accepted_at && (d.post_status !== 'posted' || custPending(d));
+  const counts = { posted: docs.filter((d) => !needs(d)).length, attention: docs.filter(needs).length, all: docs.length };
+  const shown = docs.filter((d) => (tab === 'all' || (tab === 'attention' ? needs(d) : !needs(d))))
     .filter((d) => !q || `${d.doc_no} ${d.account?.name} ${(d.lines ?? []).map((l) => `${l.account_name} ${l.applies_doc_no}`).join(' ')}`.toLowerCase().includes(q.toLowerCase()));
   const last = (k) => uploads.find((u) => u.kind === k);
 
@@ -82,7 +112,7 @@ export default function BcCheck() {
 
       <div className="list-head">
         <div className="tabs" role="tablist">
-          {[['attention', 'Needs attention'], ['posted', 'Posted correctly'], ['all', 'All']].map(([k, l]) => (
+          {[['attention', 'Needs attention'], ['posted', 'Posted'], ['all', 'All']].map(([k, l]) => (
             <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'tab on' : 'tab'} onClick={() => setTab(k)}>{l} <span className="count">{counts[k]}</span></button>
           ))}
         </div>
@@ -104,14 +134,25 @@ export default function BcCheck() {
                   <td>{d.account?.name ?? 'Cash in hand'}</td>
                   <td>{[...new Set((d.lines ?? []).map((l) => l.account_name))].join(', ')}<div className="muted small">{(d.lines ?? []).map((l) => l.applies_doc_no).filter(Boolean).join(', ')}</div></td>
                   <td className="num">{lkr(d.total)}</td>
-                  <td><span className={`pill ${custPending(d) ? 'warn' : st.cls}`}>{custPending(d) ? 'Posted (bank)' : st.label}</span></td>
+                  <td><span className={`pill ${d.accepted_at ? 'ok' : custPending(d) ? 'warn' : st.cls}`}>{d.accepted_at ? 'Posted (accepted)' : custPending(d) ? 'Posted (bank)' : st.label}</span></td>
                   <td className="small">
-                    {d.post_status === 'exported' && d.bank_check?.status !== 'n/a' && <>Not in BC's bank ledger. If it wasn't posted, <Link to="/bc-export">export it again</Link> (same number).</>}
-                    {d.post_status === 'exported' && d.bank_check?.status === 'n/a' && <>Cash receipt: not in the uploaded customer ledger yet. Upload a newer one, or if it wasn't posted, <Link to="/bc-export">export it again</Link>.</>}
-                    {custPending(d) && 'Bank side correct. The customer ledger uploaded doesn\'t include it yet: upload a newer Detailed Customer Ledger.'}
-                    {d.post_status === 'posted' && !custPending(d) && <span className="muted">Bank and customer sides match{d.customer_check?.status === 'not_checked' ? ' (customer side not checked)' : ''}.</span>}
-                    {problems.length > 0 && <ul className="plain">{problems.map((p) => <li key={p} className="error">{p}</li>)}</ul>}
-                    {d.post_status === 'posted_diff' && <div className="muted">Correct it in BC, then upload the ledgers again.</div>}
+                    {d.accepted_at ? (
+                      <>
+                        <div>Accepted as posted by {people[d.accepted_by] ?? 'finance'} on {fmtDateTime(d.accepted_at)}: <em>{d.accept_note}</em></div>
+                        {problems.length > 0 && <ul className="plain muted">{problems.map((p) => <li key={p}>BC check: {p}</li>)}</ul>}
+                        {role === 'finance' && <button className="link" onClick={async () => { await rpc('cc_bc_unaccept', { p_doc_id: d.id }); load(); }}>Undo</button>}
+                      </>
+                    ) : (
+                      <>
+                        {d.post_status === 'exported' && d.bank_check?.status !== 'n/a' && <>Not in BC's bank ledger. If it wasn't posted, <Link to="/bc-export">export it again</Link> (same number).</>}
+                        {d.post_status === 'exported' && d.bank_check?.status === 'n/a' && <>Cash receipt: not in the uploaded customer ledger yet. Upload a newer one, or if it wasn't posted, <Link to="/bc-export">export it again</Link>.</>}
+                        {custPending(d) && 'Bank side correct. The customer ledger uploaded doesn\'t include it yet: upload a newer Detailed Customer Ledger.'}
+                        {d.post_status === 'posted' && !custPending(d) && <span className="muted">Bank and customer sides match{d.customer_check?.status === 'not_checked' ? ' (customer side not checked)' : ''}.</span>}
+                        {problems.length > 0 && <ul className="plain">{problems.map((p) => <li key={p} className="error">{p}</li>)}</ul>}
+                        {d.post_status === 'posted_diff' && <div className="muted">Correct it in BC, then upload the ledgers again.</div>}
+                        {role === 'finance' && needs(d) && <PostAnyway d={d} onDone={load} />}
+                      </>
+                    )}
                   </td>
                 </tr>
               );

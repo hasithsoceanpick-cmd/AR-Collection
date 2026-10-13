@@ -714,3 +714,5 @@ td.num.out { color: var(--red); }
 /* ---------- Rejected back to Sales ---------- */
 .action.reject-box { border-color: var(--red); }
 .reject-box > .quote { margin: 0; }
+.post-anyway { display: grid; gap: 0.4rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--rule); }
+.post-anyway .field { margin: 0; }
