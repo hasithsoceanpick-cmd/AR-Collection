@@ -6,6 +6,7 @@ import { lkr, ref, fmtDate, daysAgo } from '../lib/format';
 import { KIND_LABEL, STATUS } from '../lib/workflow';
 
 const STAGES = [
+  { key: 'rejected', kpi: 'rejected back to Sales', title: 'Rejected back to Sales', hint: 'Finance sent these back for new invoices or settlement instructions. Open each one, correct it and send it back.', tone: 'red' },
   { key: 'posted_diff', kpi: 'posted in BC with differences', title: 'Posted in BC with differences', hint: 'BC check found the posting differs from what was sent (amount, date or invoices). Finance must correct it in BC.', tone: 'red' },
   { key: 'with_finance', kpi: 'with finance', title: 'With finance', hint: "Sent, but finance hasn't finished with it yet (collecting, depositing, reviewing).", tone: 'amber' },
   { key: 'to_export', kpi: 'accepted, waiting for export to BC', title: 'Accepted, waiting for export to BC', hint: 'Finance has closed it; it goes into the next BC journal export. A card payment waits until every sale in its batch is set off.', tone: 'blue' },

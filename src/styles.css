@@ -710,3 +710,7 @@ td.num.out { color: var(--red); }
 .ms-raw { white-space: pre-wrap; font-size: 0.8125rem; background: #F7F8FA; padding: 0.75rem; border-radius: 4px; overflow-x: auto; }
 .mb-body .inline-field input { width: auto; min-width: 6rem; }
 @media (max-width: 640px) { .hide-sm { display: none; } }
+
+/* ---------- Rejected back to Sales ---------- */
+.action.reject-box { border-color: var(--red); }
+.reject-box > .quote { margin: 0; }

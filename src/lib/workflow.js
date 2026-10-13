@@ -8,6 +8,7 @@ export const STATUS = {
   review:    { label: 'To review',    tone: 'amber' },
   relink:    { label: 'Needs relink', tone: 'red' },
   parked:    { label: 'Parked',       tone: 'grey' },
+  rejected:  { label: 'Rejected',     tone: 'red' },
   closed:    { label: 'Closed',       tone: 'green' },
   returned:  { label: 'Returned',     tone: 'red' },
   cancelled: { label: 'Cancelled',    tone: 'grey' },
@@ -38,7 +39,7 @@ export const KIND_LABEL = { cheque: 'Cheque', transfer: 'Transfer', cash: 'Cash'
 export function waitingOnMe(c, role, userId, isAdmin = false) {
   if (role === 'finance') return ['submitted', 'deposited', 'review'].includes(c.status) || (c.status === 'collected' && !(c.split_needed && !c.split_at));
   if (role === 'driver') return (c.driver_id === userId || (isAdmin && c.driver_id)) && ['assigned', 'received'].includes(c.status);
-  if (role === 'sales') return (c.created_by === userId || isAdmin) && (c.status === 'relink' || c.status === 'parked' || (c.status === 'collected' && c.split_needed && !c.split_at));
+  if (role === 'sales') return (c.created_by === userId || isAdmin) && (c.status === 'relink' || c.status === 'parked' || c.status === 'rejected' || (c.split_needed && !c.split_at && ['collected', 'received'].includes(c.status)));
   return false;
 }
 
@@ -52,6 +53,7 @@ export function nextStepText(c) {
     case 'parked':    return c.kind === 'card' ? 'Parked: set it off when the merchant statement shows' : 'Parked: link the bank line when it shows';
     case 'review':    return c.kind === 'card' ? 'Finance to review the card payment' : c.pay_method === 'cheque' ? 'Finance to review the cheque deposit' : 'Finance to review';
     case 'relink':    return 'Link to the right bank line';
+    case 'rejected':  return 'Rejected: Sales to correct the settlement and send it back';
     default: return '';
   }
 }

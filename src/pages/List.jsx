@@ -54,6 +54,7 @@ export default function List() {
         [c.customer_name, c.customer_no, c.invoice_refs, ref(c.id), c.location_text].some((v) => v?.toLowerCase().includes(term)))
     : current.list;
 
+  const rejected = role === 'sales' ? groups.all.filter((c) => c.status === 'rejected' && (c.created_by === uid || isAdmin)) : [];
   const photosDue = role === 'finance' ? groups.done.filter((c) =>
     !c.photos_deleted_at && c.collected_amount != null && daysAgo(c.closed_at ?? c.cancelled_at) >= 30).length : 0;
 
@@ -63,6 +64,13 @@ export default function List() {
         <div className="notice">
           {photosDue} finished collection{photosDue > 1 ? 's have' : ' has'} photos older than 30 days.{' '}
           <Link to="/photos">Back up and free space</Link>
+        </div>
+      )}
+      {rejected.length > 0 && (
+        <div className="notice danger-notice">
+          Finance rejected {rejected.length === 1 ? 'a collection' : `${rejected.length} collections`} back to you:{' '}
+          {rejected.map((c, i) => <span key={c.id}>{i > 0 && ', '}<Link to={`/c/${c.id}`}>{ref(c.id)} {c.customer_name}</Link></span>)}.
+          Open {rejected.length === 1 ? 'it' : 'each one'}, correct the invoices or settlement instructions, and send it back.
         </div>
       )}
       <div className="page-head">

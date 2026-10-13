@@ -11,6 +11,7 @@ import DepositLink from '../components/DepositLink';
 import StatementView from '../components/StatementView';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
+  RejectPanel, ResubmitPanel, REJECTABLE,
 } from './actions';
 import { useCardDraft, CardFacts, CardSetOffPanel, CardReviewPanel, CardReopenPanel } from './cardActions';
 
@@ -79,8 +80,9 @@ export default function Detail() {
   const isCreator = c.created_by === uid || isAdmin;
   const canEdit = isCheque && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
-  const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
-    || (role === 'sales' && isCreator && ['submitted', 'review', 'relink', 'parked'].includes(c.status));
+  const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink', 'rejected'].includes(c.status))
+    || (role === 'sales' && isCreator && (['submitted', 'review', 'relink', 'parked'].includes(c.status) || (c.status === 'rejected' && c.rejected_from === 'submitted')));
+  const canReject = isFinance && isCheque && REJECTABLE.includes(c.status);
   const canReturn = isFinance && isCheque && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
   const shownAmount = c.collected_amount ?? c.expected_amount;
@@ -107,7 +109,7 @@ export default function Detail() {
         <div className="slip-stamp"><StatusStamp status={c.status} big /></div>
       </div>
 
-      <Progress status={c.status} kind={c.kind} />
+      <Progress status={c.status === 'rejected' ? c.rejected_from : c.status} kind={c.kind} />
 
       {c.notes?.startsWith('Practice scenario') && <div className="notice practice-notice">Practice scenario: real customer and real open invoices, made up to show this stage. Try the next step yourself.</div>}
       {c.status === 'cancelled' && <div className="notice">Cancelled {fmtDate(c.cancelled_at)}: {c.cancel_reason}</div>}
@@ -121,6 +123,10 @@ export default function Detail() {
         </div>
       )}
       {c.status === 'relink' && <div className="notice">This transfer isn't linked to a bank line.</div>}
+      {c.status === 'rejected' && !(role === 'sales' && isCreator) && (
+        <div className="notice danger-notice">Rejected by finance on {fmtDate(c.rejected_at)}: {c.reject_note} Waiting for Sales to correct the invoices or settlement instructions and send it back.</div>
+      )}
+      {c.status === 'rejected' && role === 'sales' && isCreator && <ResubmitPanel c={c} cheques={cheques} onDone={load} />}
       {c.status === 'parked' && <div className="notice">Parked: only you can see this. Finance sees it once you {isCard ? 'set it off against the merchant statement' : 'link the bank line'} and send it.</div>}
 
       {/* The action for whoever is next */}
@@ -286,12 +292,13 @@ export default function Detail() {
         </ol>
       </div>
 
-      {(canEdit || canCancel || canReturn || (isFinance && c.status === 'closed')) && (
+      {(canEdit || canCancel || canReturn || canReject || (isFinance && c.status === 'closed')) && (
         <div className="quiet-actions">
           {canEdit && <Link className="btn ghost" to={`/c/${c.id}/edit`}>Edit details</Link>}
           {isFinance && c.status === 'closed' && !isCard && <ReopenPanel c={c} onDone={load} />}
           {isFinance && c.status === 'closed' && isCard && <CardReopenPanel c={c} draft={draft} onDone={load} />}
           {canReturn && <ReturnChequePanel c={c} cheques={cheques.filter((q) => !q.returned_at)} onDone={load} />}
+          {canReject && <RejectPanel c={c} onDone={load} />}
           {canCancel && <CancelPanel c={c} onDone={load} />}
         </div>
       )}
