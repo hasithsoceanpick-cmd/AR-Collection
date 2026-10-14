@@ -716,3 +716,10 @@ td.num.out { color: var(--red); }
 .reject-box > .quote { margin: 0; }
 .post-anyway { display: grid; gap: 0.4rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--rule); }
 .post-anyway .field { margin: 0; }
+
+/* Reminders (finance → Sales / driver) */
+.remind { display: grid; gap: 0.5rem; padding: 0.75rem 1rem; border: 1px dashed var(--rule); border-left: 4px solid var(--amber); border-radius: var(--radius); background: var(--surface); }
+.remind p { margin: 0; }
+.remind .field { margin: 0; }
+.remind-form { display: grid; gap: 0.5rem; }
+.wide > .remind { margin: 1rem 0; }

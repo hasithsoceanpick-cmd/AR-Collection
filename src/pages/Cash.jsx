@@ -6,6 +6,7 @@ import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { fetchAll } from '../lib/bcimport';
 import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
+import Reminders from '../components/Reminders';
 
 export const chRef = (id) => `CH-${String(id).padStart(5, '0')}`;
 const HANDOVER_SELECT = '*, creator:profiles!cash_handovers_created_by_fkey(full_name,email), receiver:profiles!cash_handovers_received_by_fkey(full_name,email)';
@@ -377,6 +378,8 @@ export function CashDetail() {
           <button className="btn" disabled={busy || !reason.trim()} onClick={() => run(() => rpc('cc_cash_return', { p_id: h.id, p_reason: reason }))}>Send back</button>
         </div>
       )}
+
+      {role === 'finance' && h.status === 'returned' && <Reminders id={h.id} cash watch={h.status} />}
 
       {role === 'sales' && mine && ['submitted', 'returned'].includes(h.status) && (
         <div className="action">

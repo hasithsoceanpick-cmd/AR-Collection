@@ -9,6 +9,7 @@ import MapView, { directionsUrl } from '../components/MapView';
 import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
 import StatementView from '../components/StatementView';
+import Reminders from '../components/Reminders';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
   RejectPanel, ResubmitPanel, REJECTABLE,
@@ -152,6 +153,7 @@ export default function Detail() {
           <p><Link className="btn" to={`/transfer?edit=${c.id}`}>Edit the parked entry</Link></p>
         </>
       )}
+      {isFinance && <Reminders id={c.id} watch={`${c.status}|${c.driver_id}|${c.split_at}|${c.updated_at}`} onDone={load} />}
 
       {(c.settlement?.length > 0 || c.settlement_instructions) && (
         <div className="facts">
