@@ -723,3 +723,7 @@ td.num.out { color: var(--red); }
 .remind .field { margin: 0; }
 .remind-form { display: grid; gap: 0.5rem; }
 .wide > .remind { margin: 1rem 0; }
+.line-remind { display: grid; gap: 0.15rem; margin-top: 0.35rem; justify-items: start; }
+.line-remind .ok-text { font-size: 0.8125rem; }
+.remind-row > td { background: var(--paper, transparent); }
+.facts > .remind { margin: 0.75rem 0 1rem; }

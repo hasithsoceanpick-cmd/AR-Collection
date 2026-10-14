@@ -63,3 +63,40 @@ function Reminder({ t, send, onSent }) {
     </div>
   );
 }
+
+// Finance: remind Sales about unidentified money in the bank — one line (lineId),
+// or every unidentified line at once (no lineId). To everyone in Sales, or one person.
+export function SalesReminderForm({ lineId = null, people, onSent, onCancel }) {
+  const [to, setTo] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const who = lineId
+        ? await rpc('cc_remind_line', { p_line_id: lineId, p_to: to || null, p_note: note })
+        : await rpc('cc_remind_unidentified', { p_to: to || null, p_note: note });
+      await onSent(who);
+    } catch (err) { setError(err.message); setBusy(false); }
+  }
+  return (
+    <form className="remind-form" onSubmit={submit}>
+      <div className="row-2">
+        <label className="field"><span className="flabel">Remind</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)}>
+            <option value="">Everyone in Sales</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.full_name || p.email}</option>)}
+          </select></label>
+        <label className="field"><span className="flabel">Note (optional)</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={lineId ? 'e.g. Could this be Kandoori?' : 'e.g. Month end is on Friday.'} /></label>
+      </div>
+      <div className="row">
+        <button className="btn primary" disabled={busy}>Send reminder</button>
+        <button type="button" className="btn ghost" onClick={onCancel}>Cancel</button>
+      </div>
+      {error && <p className="error">{error}</p>}
+    </form>
+  );
+}
