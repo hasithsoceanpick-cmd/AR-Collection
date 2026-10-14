@@ -15,6 +15,7 @@ import TransferForm from './pages/TransferForm';
 import Deposits from './pages/Deposits';
 import Reports from './pages/Reports';
 import Bank from './pages/Bank';
+import Chat from './pages/Chat';
 import More from './pages/More';
 import Overview from './pages/Overview';
 import BcExport from './pages/BcExport';
@@ -59,6 +60,7 @@ function Gate() {
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}
         <Route path="more" element={<More />} />
+        <Route path="chat" element={<Chat />} />
         {role === 'finance' && <Route path="photos" element={<Photos />} />}
         {role === 'finance' && <Route path="users" element={<Users />} />}
         <Route path="account" element={<Account />} />
