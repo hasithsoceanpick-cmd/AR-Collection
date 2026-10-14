@@ -6,6 +6,7 @@ import { readRows, findHeaderRow, headerCells, suggestMapping, parseStatement, d
 import { useAuth } from '../lib/auth';
 import { lkr, fmtDate, fmtDateTime, ref as ccRef, personName } from '../lib/format';
 import StatementView from '../components/StatementView';
+import { downloadStatements, monthName } from '../lib/statementExport';
 
 const FIELDS = [
   { key: 'date', label: 'Transaction date', required: true },
@@ -333,11 +334,49 @@ function BcList({ bcList, accounts, canEdit, onChanged }) {
 }
 
 // ---------- Statement ----------
+// Every account's statement for a month in one workbook, a sheet per account.
+function DownloadAll({ accounts }) {
+  const live = accounts.filter((a) => a.active !== false);
+  const months = useMemo(() => {
+    const now = new Date();
+    const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let m = live.map((a) => (a.track_from ?? end).slice(0, 7)).sort()[0] ?? end;
+    const out = [];
+    while (m <= end && out.length < 120) {
+      out.unshift(m);
+      const [y, mo] = m.split('-').map(Number);
+      m = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+    }
+    return out;
+  }, [live.map((a) => a.track_from).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [month, setMonth] = useState(months[0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!live.length) return null;
+  async function go() {
+    setBusy(true); setError('');
+    try { await downloadStatements(live, month); } catch (e) { setError(`Download failed: ${e.message}`); } finally { setBusy(false); }
+  }
+  return (
+    <div className="download-all">
+      <label className="field"><span className="flabel">Download every account's statement</span>
+        <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Month to download">
+          {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+          <option value="all">Everything held</option>
+        </select></label>
+      <button className="btn" disabled={busy} onClick={go}>{busy ? 'Preparing…' : 'Download Excel'}</button>
+      <p className="hint">One sheet per account: the bank's lines with the running balance, and what each line is in the app and in Business Central (Posted / To Post).</p>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
 function Statements({ accounts }) {
   const [accountId, setAccountId] = useState('');
   return (
     <div className="facts">
       <h2>Statements</h2>
+      <DownloadAll accounts={accounts} />
       <select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Account">
         <option value="">Choose an account</option>
         {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}

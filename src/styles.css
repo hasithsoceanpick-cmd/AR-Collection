@@ -727,3 +727,8 @@ td.num.out { color: var(--red); }
 .line-remind .ok-text { font-size: 0.8125rem; }
 .remind-row > td { background: var(--paper, transparent); }
 .facts > .remind { margin: 0.75rem 0 1rem; }
+
+/* Statement download */
+.download-all { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; margin: 0 0 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }
+.download-all .field { margin: 0; }
+.download-all .hint, .download-all .error { flex-basis: 100%; }

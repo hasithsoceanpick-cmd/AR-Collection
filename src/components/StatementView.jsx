@@ -5,6 +5,7 @@ import { fetchAll } from '../lib/bcimport';
 import { orderStatement } from '../lib/statementOrder';
 import { lkr, ref, fmtDate } from '../lib/format';
 import { TAGS } from '../lib/workflow';
+import { downloadStatements } from '../lib/statementExport';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const monthOf = (d) => (d ? d.slice(0, 7) : null);
@@ -19,6 +20,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
   const [month, setMonth] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const focusRef = useRef(null);
   const hi = useMemo(() => new Set(highlightIds), [highlightIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -59,6 +61,10 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
     try { await rpc('cc_tag_line', { p_line_id: l.id, p_tag: t, p_note: note }); await load(); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  async function download() {
+    setDownloading(true); setError('');
+    try { await downloadStatements([account], shownMonth); } catch (e) { setError(`Download failed: ${e.message}`); } finally { setDownloading(false); }
+  }
   async function untag(l) {
     setBusy(true);
     try { await rpc('cc_untag_line', { p_line_id: l.id }); await load(); } catch (e) { setError(e.message); } finally { setBusy(false); }
@@ -83,6 +89,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
           {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           <option value="all">Whole statement</option>
         </select>
+        {!compact && account && <button className="btn small" disabled={downloading} onClick={download}>{downloading ? 'Preparing…' : 'Download Excel'}</button>}
       </div>
       <div className="stmt-sum">
         <span><b>{ins.length}</b> money-in lines</span>
