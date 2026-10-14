@@ -15,7 +15,7 @@ export default function List() {
   const [q, setQ] = useState('');
 
   const load = useCallback(async () => {
-    const { data, error } = await db.from('collections').select(COLLECTION_SELECT)
+    const { data, error } = await db.from('collections').select(COLLECTION_SELECT).neq('kind', 'cash')
       .order('created_at', { ascending: false }).limit(500);
     if (error) setError(error.message); else setRows(data);
   }, []);
@@ -54,6 +54,7 @@ export default function List() {
         [c.customer_name, c.customer_no, c.invoice_refs, ref(c.id), c.location_text].some((v) => v?.toLowerCase().includes(term)))
     : current.list;
 
+  const rejected = role === 'sales' ? groups.all.filter((c) => c.status === 'rejected' && (c.created_by === uid || isAdmin)) : [];
   const photosDue = role === 'finance' ? groups.done.filter((c) =>
     !c.photos_deleted_at && c.collected_amount != null && daysAgo(c.closed_at ?? c.cancelled_at) >= 30).length : 0;
 
@@ -65,12 +66,20 @@ export default function List() {
           <Link to="/photos">Back up and free space</Link>
         </div>
       )}
+      {rejected.length > 0 && (
+        <div className="notice danger-notice">
+          Finance rejected {rejected.length === 1 ? 'a collection' : `${rejected.length} collections`} back to you:{' '}
+          {rejected.map((c, i) => <span key={c.id}>{i > 0 && ', '}<Link to={`/c/${c.id}`}>{ref(c.id)} {c.customer_name}</Link></span>)}.
+          Open {rejected.length === 1 ? 'it' : 'each one'}, correct the invoices or settlement instructions, and send it back.
+        </div>
+      )}
       <div className="page-head">
         <h1>Collections</h1>
         {(role === 'sales' || role === 'finance') && (
           <div className="row">
             <Link className="btn primary" to="/new">New collection</Link>
             <Link className="btn" to="/transfer">Record transfer</Link>
+            <Link className="btn" to="/card">Record card payment</Link>
           </div>
         )}
       </div>
@@ -108,6 +117,7 @@ export default function List() {
                 <span className="row-meta">
                   <span>{ref(c.id)}</span>
                   {c.kind === 'transfer' && <span className="kind-tag">Transfer</span>}
+                  {c.kind === 'card' && <span className="kind-tag">Card</span>}
                   {c.notes?.startsWith('Practice scenario') && <span className="practice-tag">Practice</span>}
                   {c.customer_no && <span>{c.customer_no}</span>}
                   {c.invoice_refs && <span>Inv. {c.invoice_refs}</span>}

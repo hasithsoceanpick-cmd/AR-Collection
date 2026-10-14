@@ -13,13 +13,17 @@ export function navLinks(role) {
     { to: '/collections', label: 'Collections', main: true },
     { to: '/reports', label: 'Reports', main: true },
     { to: '/deposits', label: 'Deposits' },
+    { to: '/cash', label: 'Cash' },
+    { to: '/merchant', label: 'Merchant statements' },
+    { to: '/not-in-bc', label: 'Not in BC yet' },
     { to: '/bank-rec', label: 'Bank rec' },
     { to: '/bc-check', label: 'BC check' },
     { to: '/account', label: 'Account' },
   ];
   return [
     { to: '/', label: 'Collections', end: true, main: true },
-    ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }] : []),
+    ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }, { to: '/card', label: 'Record card payment' },
+      { to: '/cash', label: s ? 'Cash handover' : 'Cash' }, { to: '/merchant', label: 'Merchant statements' }, { to: '/not-in-bc', label: 'Not in BC yet' }] : []),
     ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),
     { to: '/reports', label: 'Reports', main: true },
     ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }, { to: '/bc-export', label: 'Export to BC' },

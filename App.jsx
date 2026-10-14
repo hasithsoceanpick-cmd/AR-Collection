@@ -20,6 +20,10 @@ import Overview from './pages/Overview';
 import BcExport from './pages/BcExport';
 import BcCheck from './pages/BcCheck';
 import BankRec from './pages/BankRec';
+import { CashList, CashForm, CashDetail, CashReceipt } from './pages/Cash';
+import { MerchantPage, MerchantStatement, MerchantAdd } from './pages/Merchant';
+import CardForm from './pages/CardForm';
+import NotInBc from './pages/NotInBc';
 
 function Gate() {
   const { session, loading, role } = useAuth();
@@ -36,11 +40,21 @@ function Gate() {
         {role === 'finance' && <Route path="bc-export" element={<BcExport />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="cash" element={<CashList />} />}
+        {role === 'sales' && <Route path="cash/new" element={<CashForm />} />}
+        {role === 'sales' && <Route path="cash/:id/edit" element={<CashForm />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="cash/:id" element={<CashDetail />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="cash/:id/receipt" element={<CashReceipt />} />}
         {canCreate && <Route path="new" element={<CollectionForm />} />}
         <Route path="c/:id" element={<Detail />} />
         {canCreate && <Route path="c/:id/edit" element={<CollectionForm />} />}
         {canCreate && <Route path="customers" element={<CustomerData />} />}
         {canCreate && <Route path="transfer" element={<TransferForm />} />}
+        {canCreate && <Route path="card" element={<CardForm />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant" element={<MerchantPage />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant/s/:id" element={<MerchantStatement />} />}
+        {role === 'finance' && <Route path="merchant/new" element={<MerchantAdd />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="not-in-bc" element={<NotInBc />} />}
         {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}

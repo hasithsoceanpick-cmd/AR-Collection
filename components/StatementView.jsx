@@ -5,6 +5,7 @@ import { fetchAll } from '../lib/bcimport';
 import { orderStatement } from '../lib/statementOrder';
 import { lkr, ref, fmtDate } from '../lib/format';
 import { TAGS } from '../lib/workflow';
+import { downloadStatements } from '../lib/statementExport';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const monthOf = (d) => (d ? d.slice(0, 7) : null);
@@ -15,10 +16,11 @@ const monthLabel = (m) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}
 export default function StatementView({ accountId, highlightIds = [], focusDate = null, allowTag = false, compact = false }) {
   const [account, setAccount] = useState(null);
   const [lines, setLines] = useState(null);
-  const [labels, setLabels] = useState({ c: {}, d: {} });
+  const [labels, setLabels] = useState({ c: {}, d: {}, m: {} });
   const [month, setMonth] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const focusRef = useRef(null);
   const hi = useMemo(() => new Set(highlightIds), [highlightIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -30,14 +32,17 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
       ]);
       const cids = [...new Set(ls.filter((l) => l.collection_id).map((l) => l.collection_id))];
       const dids = [...new Set(ls.filter((l) => l.deposit_id).map((l) => l.deposit_id))];
-      const [c1, c2] = await Promise.all([
+      const mids = ls.filter((l) => l.link_kind === 'merchant').map((l) => l.id);
+      const [c1, c2, c3] = await Promise.all([
         cids.length ? db.from('collections').select('id, customer_name').in('id', cids) : { data: [] },
         dids.length ? db.from('collections').select('id, customer_name, deposit_id').in('deposit_id', dids) : { data: [] },
+        mids.length ? db.from('merchant_batches').select('id, hnbms_no, line_id').in('line_id', mids) : { data: [] },
       ]);
+      const m = Object.fromEntries((c3.data ?? []).map((x) => [x.line_id, x]));
       const c = Object.fromEntries((c1.data ?? []).map((x) => [x.id, x.customer_name]));
       const d = {};
       for (const x of c2.data ?? []) (d[x.deposit_id] ??= []).push(x.customer_name);
-      setAccount(a); setLines(ls); setLabels({ c, d });
+      setAccount(a); setLines(ls); setLabels({ c, d, m });
     } catch (e) { setError(e.message); }
   }
   useEffect(() => { setLines(null); load(); }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -56,6 +61,10 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
     try { await rpc('cc_tag_line', { p_line_id: l.id, p_tag: t, p_note: note }); await load(); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  async function download() {
+    setDownloading(true); setError('');
+    try { await downloadStatements([account], shownMonth); } catch (e) { setError(`Download failed: ${e.message}`); } finally { setDownloading(false); }
+  }
   async function untag(l) {
     setBusy(true);
     try { await rpc('cc_untag_line', { p_line_id: l.id }); await load(); } catch (e) { setError(e.message); } finally { setBusy(false); }
@@ -66,7 +75,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
   if (!lines.length) return <p className="muted">No statement lines uploaded for this account yet.</p>;
 
   const ins = shown.filter((l) => l.credit > 0);
-  const rec = ins.filter((l) => l.link_kind === 'deposit' || l.link_kind === 'transfer');
+  const rec = ins.filter((l) => ['deposit', 'transfer', 'cash', 'merchant'].includes(l.link_kind));
   const tagged = ins.filter((l) => l.link_kind === 'tag');
   const unid = ins.filter((l) => !l.link_kind);
   const sum = (a) => a.reduce((s, l) => s + Number(l.credit), 0);
@@ -80,6 +89,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
           {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           <option value="all">Whole statement</option>
         </select>
+        {!compact && account && <button className="btn small" disabled={downloading} onClick={download}>{downloading ? 'Preparing…' : 'Download Excel'}</button>}
       </div>
       <div className="stmt-sum">
         <span><b>{ins.length}</b> money-in lines</span>
@@ -108,6 +118,8 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
                     {isHi && <span className="this-tag">This item</span>}
                     {l.link_kind === 'transfer' && <Link to={`/c/${l.collection_id}`}>{ref(l.collection_id)} {labels.c[l.collection_id] ?? ''}</Link>}
                     {l.link_kind === 'deposit' && <Link to={`/deposits#d${l.deposit_id}`}>Slip D-{l.deposit_id}: {(labels.d[l.deposit_id] ?? []).join(', ')}</Link>}
+                    {l.link_kind === 'cash' && <Link to="/cash">Cash handed over and banked</Link>}
+                    {l.link_kind === 'merchant' && <Link to={`/merchant?batch=${labels.m[l.id]?.id ?? ''}`}>Card batch {labels.m[l.id]?.hnbms_no ?? ''}</Link>}
                     {l.link_kind === 'tag' && <>{TAGS[l.tag]}{l.tag_note ? `: ${l.tag_note}` : ''}{allowTag && <> <button className="link" disabled={busy} onClick={() => untag(l)}>undo</button></>}</>}
                     {!l.link_kind && l.credit > 0 && !isHi && (
                       <>

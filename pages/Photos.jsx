@@ -12,7 +12,7 @@ const endDate = (c) => c.closed_at ?? c.cancelled_at;
 // its deposit slip (shared with other collections on the slip) or an older single slip.
 function filesOf(c) {
   const f = c.cheques.map((q) => ({ path: q.photo_path, kind: 'cheque', q }));
-  if (c.receipt_path) f.push({ path: c.receipt_path, kind: 'receipt' });
+  for (const p of [c.receipt_path, ...(c.receipt_more ?? [])]) if (p) f.push({ path: p, kind: 'receipt' });
   if (c.deposit?.slip_path) f.push({ path: c.deposit.slip_path, kind: 'slip', shared: true });
   else if (c.deposit_slip_path) f.push({ path: c.deposit_slip_path, kind: 'slip' });
   return f.filter((x) => x.path);
@@ -72,7 +72,7 @@ export default function Photos() {
         for (const f of filesOf(c)) {
           const ext = /\.pdf$/i.test(f.path) ? 'pdf' : 'jpg';
           const name = f.kind === 'cheque' ? `${ref(c.id)}_chq-${safe(f.q.cheque_no)}_LKR-${f.q.amount}.${ext}`
-            : f.kind === 'receipt' ? `${ref(c.id)}_transfer-receipt.${ext}`
+            : f.kind === 'receipt' ? `${ref(c.id)}_${c.kind === 'card' ? 'card-slip' : 'transfer-receipt'}.${ext}`
             : `${ref(c.id)}_deposit-slip${c.deposit ? `-D${c.deposit.id}` : ''}.${ext}`;
           const file = await add(f.path, unique(`${folder}/${name}`));
           lines.push([...base, f.q?.cheque_no ?? '', f.q?.bank ?? '', f.q?.cheque_date ?? '', f.q?.amount ?? '', personName(c.driver),

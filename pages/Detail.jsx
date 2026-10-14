@@ -9,9 +9,13 @@ import MapView, { directionsUrl } from '../components/MapView';
 import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
 import StatementView from '../components/StatementView';
+import Reminders from '../components/Reminders';
+import ReceiptFiles from '../components/ReceiptFiles';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
+  RejectPanel, ResubmitPanel, REJECTABLE,
 } from './actions';
+import { useCardDraft, CardFacts, CardSetOffPanel, CardReviewPanel, CardReopenPanel } from './cardActions';
 
 export default function Detail() {
   const { id } = useParams();
@@ -54,6 +58,8 @@ export default function Detail() {
     }
   }, [id]);
 
+  const draft = useCardDraft(c);
+
   useEffect(() => {
     load();
     const ch = supabase.channel(`collection-${id}`)
@@ -69,15 +75,19 @@ export default function Detail() {
   );
 
   const isTransfer = c.kind === 'transfer';
+  const isCard = c.kind === 'card';
+  const isCheque = c.kind === 'cheque';
   const isDriver = role === 'driver' && (c.driver_id === uid || isAdmin);
   const isFinance = role === 'finance';
   const isCreator = c.created_by === uid || isAdmin;
-  const canEdit = !isTransfer && ((role === 'sales' && isCreator && c.status === 'submitted')
+  const canEdit = isCheque && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
-  const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink'].includes(c.status))
-    || (role === 'sales' && isCreator && ['submitted', 'review', 'relink'].includes(c.status));
-  const canReturn = isFinance && !isTransfer && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
+  const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink', 'rejected'].includes(c.status))
+    || (role === 'sales' && isCreator && (['submitted', 'review', 'relink', 'parked'].includes(c.status) || (c.status === 'rejected' && c.rejected_from === 'submitted')));
+  const canReject = isFinance && isCheque && REJECTABLE.includes(c.status);
+  const canReturn = isFinance && isCheque && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
+  const canEditFiles = (isTransfer || isCard) && c.created_by === uid && ['parked', 'review', 'relink'].includes(c.status);
   const shownAmount = c.collected_amount ?? c.expected_amount;
 
   return (
@@ -86,7 +96,7 @@ export default function Detail() {
 
       <div className="slip">
         <div className="slip-top">
-          <span className="slip-ref">{ref(c.id)} · {isTransfer ? 'Bank transfer' : 'Cheque collection'}</span>
+          <span className="slip-ref">{ref(c.id)} · {isTransfer ? 'Bank transfer' : isCard ? 'Card payment' : 'Cheque collection'}</span>
           <span className="slip-date">Recorded {fmtDate(c.created_at)} by {personName(c.creator)}</span>
         </div>
         <div className="slip-payee">
@@ -94,7 +104,7 @@ export default function Detail() {
           <h1>{c.customer_name}</h1>
         </div>
         <div className="slip-amount">
-          <span className="slip-cap">{isTransfer ? 'Transferred' : c.collected_amount != null ? 'Collected' : 'Expected'}</span>
+          <span className="slip-cap">{isTransfer ? 'Transferred' : isCard ? 'Paid by card' : c.collected_amount != null ? 'Collected' : 'Expected'}</span>
           <span className="slip-figure">LKR {lkr(shownAmount)}</span>
           {c.amount_changed && <span className="slip-changed">Expected LKR {lkr(c.expected_amount)}. The amount changed at collection.</span>}
         </div>
@@ -102,7 +112,7 @@ export default function Detail() {
         <div className="slip-stamp"><StatusStamp status={c.status} big /></div>
       </div>
 
-      <Progress status={c.status} kind={c.kind} />
+      <Progress status={c.status === 'rejected' ? c.rejected_from : c.status} kind={c.kind} />
 
       {c.notes?.startsWith('Practice scenario') && <div className="notice practice-notice">Practice scenario: real customer and real open invoices, made up to show this stage. Try the next step yourself.</div>}
       {c.status === 'cancelled' && <div className="notice">Cancelled {fmtDate(c.cancelled_at)}: {c.cancel_reason}</div>}
@@ -116,22 +126,36 @@ export default function Detail() {
         </div>
       )}
       {c.status === 'relink' && <div className="notice">This transfer isn't linked to a bank line.</div>}
+      {c.status === 'rejected' && !(role === 'sales' && isCreator) && (
+        <div className="notice danger-notice">Rejected by finance on {fmtDate(c.rejected_at)}: {c.reject_note} Waiting for Sales to correct the invoices or settlement instructions and send it back.</div>
+      )}
+      {c.status === 'rejected' && role === 'sales' && isCreator && <ResubmitPanel c={c} cheques={cheques} onDone={load} />}
+      {c.status === 'parked' && <div className="notice">Parked: only you can see this. Finance sees it once you {isCard ? 'set it off against the merchant statement' : 'link the bank line'} and send it.</div>}
 
       {/* The action for whoever is next */}
-      {!isTransfer && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
-      {!isTransfer && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
-      {!isTransfer && c.split_needed && !c.split_at && role === 'sales' && isCreator && cheques.length > 1 && <SplitPanel c={c} cheques={cheques} onDone={load} />}
-      {!isTransfer && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
-      {!isTransfer && c.split_needed && c.split_at && <SplitSummary cheques={cheques} />}
-      {!isTransfer && (isDriver || isFinance) && c.status === 'received' && (
+      {isCheque && isFinance && ['submitted', 'assigned'].includes(c.status) && <AssignPanel c={c} onDone={load} />}
+      {isCheque && (isDriver || isFinance) && c.status === 'assigned' && <CollectPanel c={c} onDone={load} asFinance={!isDriver} />}
+      {isCheque && c.split_needed && !c.split_at && role === 'sales' && isCreator && cheques.length > 1 && <SplitPanel c={c} cheques={cheques} onDone={load} />}
+      {isCheque && isFinance && c.status === 'collected' && <ReceivePanel c={c} onDone={load} />}
+      {isCheque && c.split_needed && c.split_at && <SplitSummary cheques={cheques} />}
+      {isCheque && (isDriver || isFinance) && c.status === 'received' && (
         <div className="action quiet">
           <Link className="btn primary" to="/deposits">Record the deposit slip</Link>
           <span className="hint">Deposits are recorded per slip, so several collections can go on one.</span>
         </div>
       )}
-      {!isTransfer && isFinance && c.status === 'deposited' && deposit && !deposit.closed_at && <DepositLink deposit={deposit} onDone={load} />}
+      {isCheque && isFinance && c.status === 'deposited' && deposit && !deposit.closed_at && <DepositLink deposit={deposit} onDone={load} />}
+      {isCard && c.status === 'parked' && role === 'sales' && isCreator && <CardSetOffPanel c={c} onDone={load} />}
+      {isCard && isFinance && c.status === 'review' && <CardReviewPanel c={c} draft={draft} onDone={load} />}
       {isTransfer && isFinance && c.status === 'review' && <TransferReviewPanel c={c} line={line} onDone={load} />}
       {isTransfer && c.status === 'relink' && (isFinance || (role === 'sales' && isCreator)) && <RelinkPanel c={c} onDone={load} />}
+      {isTransfer && c.status === 'parked' && role === 'sales' && isCreator && (
+        <>
+          <RelinkPanel c={c} onDone={load} parked />
+          <p><Link className="btn" to={`/transfer?edit=${c.id}`}>Edit the parked entry</Link></p>
+        </>
+      )}
+      {isFinance && <Reminders id={c.id} watch={`${c.status}|${c.driver_id}|${c.split_at}|${c.updated_at}`} onDone={load} />}
 
       {(c.settlement?.length > 0 || c.settlement_instructions) && (
         <div className="facts">
@@ -171,15 +195,14 @@ export default function Detail() {
               <dt>Amount</dt><dd>LKR {lkr(line.credit)}</dd>
             </dl>
           ) : <p className="muted">Not linked to a bank line.</p>}
-          <h2>Receipt</h2>
-          {c.receipt_path ? (photosGone ? <div className="img-missing">Receipt deleted after backup</div>
-            : <div className="slip-photo"><SignedImage path={c.receipt_path} alt="Receipt" /></div>)
-            : <p>No receipt. Reason given: {c.no_receipt_reason}</p>}
+          <ReceiptFiles c={c} label="Receipt" short="receipt" kind="receipt" photosGone={photosGone} canEdit={canEditFiles} onDone={load} />
           {c.notes && <p className="quote">Notes: {c.notes}</p>}
         </div>
       )}
 
-      {!isTransfer && (
+      {isCard && <CardFacts c={c} draft={draft} photosGone={photosGone} canEditFiles={canEditFiles} onDone={load} />}
+
+      {isCheque && (
         <div className="facts">
           <h2>Where and who</h2>
           <dl>
@@ -270,11 +293,13 @@ export default function Detail() {
         </ol>
       </div>
 
-      {(canEdit || canCancel || canReturn || (isFinance && c.status === 'closed')) && (
+      {(canEdit || canCancel || canReturn || canReject || (isFinance && c.status === 'closed')) && (
         <div className="quiet-actions">
           {canEdit && <Link className="btn ghost" to={`/c/${c.id}/edit`}>Edit details</Link>}
-          {isFinance && c.status === 'closed' && <ReopenPanel c={c} onDone={load} />}
+          {isFinance && c.status === 'closed' && !isCard && <ReopenPanel c={c} onDone={load} />}
+          {isFinance && c.status === 'closed' && isCard && <CardReopenPanel c={c} draft={draft} onDone={load} />}
           {canReturn && <ReturnChequePanel c={c} cheques={cheques.filter((q) => !q.returned_at)} onDone={load} />}
+          {canReject && <RejectPanel c={c} onDone={load} />}
           {canCancel && <CancelPanel c={c} onDone={load} />}
         </div>
       )}
