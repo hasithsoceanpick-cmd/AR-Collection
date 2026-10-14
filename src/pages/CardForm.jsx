@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { rpc, uploadMine, db } from '../lib/supabase';
+import { rpc, db } from '../lib/supabase';
 import { fetchAll } from '../lib/bcimport';
 import { lkr, fmtDate, todayISO } from '../lib/format';
 import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
-import ReceiptInput from '../components/ReceiptInput';
+import ReceiptInput, { keptItems, uploadReceiptItems, attachFiles } from '../components/ReceiptInput';
 import DraftPicker from '../components/DraftPicker';
 import { useAuth } from '../lib/auth';
 
@@ -30,8 +30,7 @@ export default function CardForm() {
   const [last4, setLast4] = useState('');
   const [draft, setDraft] = useState(null);
   const [mismatchOk, setMismatchOk] = useState(false);
-  const [slip, setSlip] = useState(null);
-  const [keptSlip, setKeptSlip] = useState(null);
+  const [files, setFiles] = useState([]);                    // the slip's files (photos / PDFs)
   const [noSlip, setNoSlip] = useState(false);
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -52,7 +51,7 @@ export default function CardForm() {
       setInstructions(c.settlement_instructions ?? '');
       setAmount(Number(c.collected_amount).toFixed(2)); setAmountTouched(true);
       setCardDate(c.card_date ?? todayISO()); setLast4(c.card_last4 ?? ''); setNotes(c.notes ?? '');
-      setKeptSlip(c.receipt_path);
+      setFiles(keptItems(c));
       if (!c.receipt_path) { setNoSlip(true); setReason(c.no_receipt_reason ?? ''); }
     });
   }, [editId]);
@@ -81,10 +80,9 @@ export default function CardForm() {
       if (last4Clean && last4Clean.length !== 4) throw new Error('The last 4 digits should be 4 digits, or leave them blank.');
       if (mode === 'send' && !draft) throw new Error('Pick the sale on the merchant statement, or park it until the statement is in.');
       if (mode === 'send' && mismatch && !mismatchOk) throw new Error(`The statement shows the card ending ${draft.card_last4}, not ${last4Clean}. Tick that you've checked it, or pick another sale.`);
-      let path = null;
-      if (slip) path = await uploadMine(slip.blob, 'card-slip', slip.ext, slip.type);
-      else if (keptSlip && !noSlip) path = keptSlip;
-      else if (!noSlip || !reason.trim()) throw new Error('Attach the card slip, or tick "No slip" and give the reason.');
+      if (noSlip ? !reason.trim() : !files.length) throw new Error('Attach the card slip, or tick "No slip" and give the reason.');
+      const paths = noSlip ? [] : await uploadReceiptItems(files, 'card-slip');
+      const path = paths[0] ?? null;
       const p = {
         id: editId, customer_no: customer.customer_no, customer_name: customer.name, settlement_docs: docs,
         settlement_instructions: instructions, amount: amountNum, card_date: cardDate, card_last4: last4Clean || null,
@@ -92,6 +90,7 @@ export default function CardForm() {
         draft_id: mode === 'send' ? draft.draft_id : null, allow_card_mismatch: Boolean(mismatch && mismatchOk),
       };
       const id = await rpc('cc_card_save', { p });
+      if (paths.length > 1 || editId) await attachFiles(id, paths);
       nav(`/c/${id}`);
     } catch (err) { setError(err.message); setBusy(false); }
   }
@@ -151,9 +150,8 @@ export default function CardForm() {
           </div>
         )}
 
-        {!noSlip && keptSlip && !slip && <p className="hint">The slip you attached is kept. Choose a new one only to replace it.</p>}
-        {!noSlip && <ReceiptInput label="Card slip (photo or PDF)" value={slip} onChange={setSlip} />}
-        <label className="check"><input type="checkbox" checked={noSlip} onChange={(e) => { setNoSlip(e.target.checked); if (e.target.checked) setSlip(null); }} /> No slip available</label>
+        {!noSlip && <ReceiptInput label="Card slip: one or more photos or PDFs" items={files} onChange={setFiles} />}
+        <label className="check"><input type="checkbox" checked={noSlip} onChange={(e) => setNoSlip(e.target.checked)} /> No slip available</label>
         {noSlip && (
           <label className="field"><span className="flabel">Why is there no slip?</span>
             <input required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Slip given to the customer" /></label>

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { rpc, db } from '../lib/supabase';
 import { lkr, fmtDate } from '../lib/format';
 import DraftPicker, { cardNo } from '../components/DraftPicker';
-import SignedImage from '../components/SignedImage';
+import ReceiptFiles from '../components/ReceiptFiles';
 
 function useAction(onDone) {
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,7 @@ export function useCardDraft(c) {
   return draft;
 }
 
-export function CardFacts({ c, draft, photosGone }) {
+export function CardFacts({ c, draft, photosGone, canEditFiles = false, onDone }) {
   return (
     <div className="facts">
       <h2>Card</h2>
@@ -45,10 +45,7 @@ export function CardFacts({ c, draft, photosGone }) {
           </>
         ) : <span className="muted">Not set off yet</span>}</dd>
       </dl>
-      <h2>Card slip</h2>
-      {c.receipt_path ? (photosGone ? <div className="img-missing">Slip deleted after backup</div>
-        : <div className="slip-photo"><SignedImage path={c.receipt_path} alt="Card slip" /></div>)
-        : <p>No slip. Reason given: {c.no_receipt_reason}</p>}
+      <ReceiptFiles c={c} label="Card slip" short="slip" kind="card-slip" photosGone={photosGone} canEdit={canEditFiles} onDone={onDone} />
       {c.notes && <p className="quote">Notes: {c.notes}</p>}
     </div>
   );

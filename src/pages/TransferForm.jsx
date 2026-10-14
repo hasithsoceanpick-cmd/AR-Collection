@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { supabase, rpc, uploadMine, db } from '../lib/supabase';
+import { supabase, rpc, db } from '../lib/supabase';
 import { fetchAll } from '../lib/bcimport';
-import { lkr, fmtDate, fmtDateTime } from '../lib/format';
+import { lkr, ref, fmtDate, fmtDateTime } from '../lib/format';
 import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
 import BankLinePicker from '../components/BankLinePicker';
-import ReceiptInput from '../components/ReceiptInput';
+import ReceiptInput, { keptItems, uploadReceiptItems, attachFiles } from '../components/ReceiptInput';
 import { useAuth } from '../lib/auth';
 import StatementAside from '../components/StatementAside';
 
@@ -23,7 +23,7 @@ export default function TransferForm() {
   const [exact, setExact] = useState(null);
   const [accountId, setAccountId] = useState('');
   const [line, setLine] = useState(null);
-  const [receipt, setReceipt] = useState(null);
+  const [files, setFiles] = useState([]);                    // the receipt's files (photos / PDFs)
   const [noReceipt, setNoReceipt] = useState(false);
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -34,8 +34,8 @@ export default function TransferForm() {
   const [chequeNo, setChequeNo] = useState('');
   const [params] = useSearchParams();
   const editId = Number(params.get('edit')) || null;          // editing a parked entry
-  const [keptReceipt, setKeptReceipt] = useState(null);       // its receipt, unless replaced
   const { role } = useAuth();
+  const [parkedHere, setParkedHere] = useState([]);   // Sales: my parked payments that could be the line this was opened from
 
   useEffect(() => {
     fetchAll(() => db.from('customers').select('customer_no,name').eq('in_latest_list', true).order('name'))
@@ -52,6 +52,7 @@ export default function TransferForm() {
       setAccountId(String(data.account_id)); setAmount(Number(data.credit).toFixed(2)); setAmountTouched(true);
       setExact(Math.round(Number(data.credit) * 100) / 100); pickLine(data);
     });
+    if (role === 'sales') rpc('cc_parked_for_line', { p_line_id: id }).then((d) => setParkedHere(d ?? [])).catch(() => setParkedHere([]));
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -63,7 +64,7 @@ export default function TransferForm() {
       setAmount(Number(c.expected_amount).toFixed(2)); setAmountTouched(true); setExact(Math.round(Number(c.expected_amount) * 100) / 100);
       if (c.account_id) setAccountId(String(c.account_id));
       setMethod(c.pay_method ?? 'transfer'); setMethodTouched(true); setChequeNo(c.cheque_no ?? '');
-      setNotes(c.notes ?? ''); setKeptReceipt(c.receipt_path);
+      setNotes(c.notes ?? ''); setFiles(keptItems(c));
       if (!c.receipt_path) { setNoReceipt(true); setReason(c.no_receipt_reason ?? ''); }
     });
   }, [editId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -95,10 +96,9 @@ export default function TransferForm() {
       if (!customer) throw new Error('Choose the customer.');
       if (mode === 'send' && !line) throw new Error('Pick the bank line this payment arrived as, or park it until the line shows.');
       if (method === 'cheque' && !chequeNo.trim()) throw new Error('Enter the cheque number.');
-      let path = null;
-      if (receipt) path = await uploadMine(receipt.blob, 'receipt', receipt.ext, receipt.type);
-      else if (keptReceipt && !noReceipt) path = keptReceipt;
-      else if (!noReceipt || !reason.trim()) throw new Error('Attach the receipt, or tick "No receipt" and give the reason.');
+      if (noReceipt ? !reason.trim() : !files.length) throw new Error('Attach the receipt, or tick "No receipt" and give the reason.');
+      const paths = noReceipt ? [] : await uploadReceiptItems(files, 'receipt');
+      const path = paths[0] ?? null;
       const p = {
         customer_no: customer.customer_no, customer_name: customer.name, settlement_docs: docs,
         settlement_instructions: instructions, account_id: accountId ? Number(accountId) : null,
@@ -111,6 +111,7 @@ export default function TransferForm() {
       } else {
         id = await rpc('cc_create_transfer', { p: { ...p, line_id: line.id } });
       }
+      if (paths.length > 1 || editId) await attachFiles(id, paths);
       nav(`/c/${id}`);
     } catch (err) { setError(err.message); setBusy(false); }
   }
@@ -122,6 +123,15 @@ export default function TransferForm() {
       <div className="page-head"><h1>{editId ? 'Edit the parked payment' : 'Record a transfer or cheque deposit'}</h1></div>
       <p className="lede">For money the customer paid straight into our bank: an online transfer, or a cheque they deposited themselves. It must already be on the bank statement in the app. Pick the customer and invoices, the amount, then its bank line.</p>
 
+      {!editId && parkedHere.length > 0 && (
+        <div className="notice ok-notice">
+          <strong>You already parked {parkedHere.length === 1 ? 'a payment that could be' : 'payments that could be'} this bank line.</strong> Link {parkedHere.length === 1 ? 'it' : 'the right one'} instead of recording it again:
+          <ul className="plain">{parkedHere.map((p) => (
+            <li key={p.id}><Link to={`/c/${p.id}?line=${params.get('line')}`}>{ref(p.id)} {p.customer_name}, LKR {lkr(p.amount)}</Link>
+              {' '}<span className="muted">parked {fmtDate(p.created_at)}{p.exact ? ', same amount' : `, bank shows LKR ${lkr(Math.abs(Number(p.diff)))} ${Number(p.diff) < 0 ? 'less' : 'more'}`}</span></li>
+          ))}</ul>
+        </div>
+      )}
       <form onSubmit={save} className="stack">
         <fieldset className="field method-pick"><span className="flabel">How did the money arrive?</span>
           <label className="check"><input type="radio" name="method" checked={method === 'transfer'} onChange={() => { setMethod('transfer'); setMethodTouched(true); }} /> Bank transfer or online payment</label>
@@ -180,9 +190,8 @@ export default function TransferForm() {
         )}
         {accountId && exact == null && <p className="hint">Enter the amount to see the matching bank lines.</p>}
 
-        {!noReceipt && keptReceipt && !receipt && <p className="hint">The receipt you attached is kept. Choose a new one below only to replace it.</p>}
-        {!noReceipt && <ReceiptInput label="Receipt (photo or PDF)" value={receipt} onChange={setReceipt} />}
-        <label className="check"><input type="checkbox" checked={noReceipt} onChange={(e) => { setNoReceipt(e.target.checked); if (e.target.checked) setReceipt(null); }} /> No receipt available</label>
+        {!noReceipt && <ReceiptInput label="Receipt: one or more photos or PDFs" items={files} onChange={setFiles} />}
+        <label className="check"><input type="checkbox" checked={noReceipt} onChange={(e) => setNoReceipt(e.target.checked)} /> No receipt available</label>
         {noReceipt && (
           <label className="field"><span className="flabel">Why is there no receipt?</span>
             <input required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Customer confirmed by phone" /></label>

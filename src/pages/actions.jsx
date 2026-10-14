@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase, rpc, uploadPhoto, db } from '../lib/supabase';
 import BankLinePicker from '../components/BankLinePicker';
 import StatementView from '../components/StatementView';
-import { lkr, todayISO } from '../lib/format';
+import { lkr, todayISO, fmtDate } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
 import InvoicePicker from '../components/InvoicePicker';
 
@@ -276,6 +276,69 @@ export function RelinkPanel({ c, onDone, parked = false }) {
         Link and send to finance
       </button>
       {accountId && <StatementView key={accountId} accountId={Number(accountId)} highlightIds={line ? [line.id] : []} focusDate={line?.txn_date} compact />}
+    </div>
+  );
+}
+
+// Sales — match a parked transfer to its bank line (any account) and send it to finance.
+// Lines of the same amount, or a close one (the bank took charges), are offered best first.
+export function ParkedMatchPanel({ c, onDone, lineId = null }) {
+  const [entry, setEntry] = useState(null);
+  const [pick, setPick] = useState(null);
+  const [takeBank, setTakeBank] = useState(false);
+  const { busy, error, run } = useAction(onDone);
+  useEffect(() => {
+    rpc('cc_parked_candidates', { p_id: c.id }).then((d) => {
+      const e = d?.[0] ?? { lines: [] };
+      setEntry(e);
+      const pre = e.lines.find((l) => l.id === lineId) ?? (e.lines.length === 1 && e.lines[0].exact ? e.lines[0] : null);
+      if (pre) setPick(pre);
+    }).catch(() => setEntry({ lines: [] }));
+  }, [c.id, c.collected_amount, lineId]);
+  if (!entry) return <div className="action"><p className="muted">Looking for the bank line…</p></div>;
+  const amt = Number(c.collected_amount);
+  const diffText = (l) => `LKR ${lkr(Math.abs(Number(l.diff)))} ${Number(l.diff) < 0 ? 'less' : 'more'}`;
+  return (
+    <div className="action parked-match">
+      <h2>Match it to the bank line and send to finance</h2>
+      <p className="hint">Parked: finance can't see this yet. {entry.lines.length
+        ? `These money-in lines could be this payment of LKR ${lkr(amt)}. Pick the right one.`
+        : `No bank line of LKR ${lkr(amt)}, or close to it, is in the app yet. When finance uploads the statement it shows here, and you are told.`}</p>
+      {entry.lines.length > 0 && (
+        <ul className="pm-lines">
+          {entry.lines.map((l) => (
+            <li key={l.id} className={pick?.id === l.id ? 'on' : ''}>
+              <label>
+                <input type="radio" name="parked-line" checked={pick?.id === l.id} onChange={() => { setPick(l); setTakeBank(false); }} />
+                <span className="lp-main">
+                  <span className="lp-narr">{l.narration || '(no narration)'}</span>
+                  <span className="lp-meta">
+                    <span>{fmtDate(l.txn_date)}</span><span>{l.account_name}</span>
+                    {l.reference && <span>Ref {l.reference}</span>}
+                    {l.cheque_no && <span>Cheque {l.cheque_no}</span>}
+                    {l.exact ? <span className="lp-exact">Same amount</span> : <span className="lp-close">{diffText(l)}</span>}
+                    {l.names_customer && <span className="lp-exact">Customer's name</span>}
+                    {l.cheque_match && <span className="lp-exact">Cheque number</span>}
+                  </span>
+                </span>
+                <span className="num lp-amt">{lkr(l.credit)}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {pick && !pick.exact && (
+        <label className="check warn-box"><input type="checkbox" checked={takeBank} onChange={(e) => setTakeBank(e.target.checked)} />
+          The bank received LKR {lkr(pick.credit)}, {diffText(pick)} than entered. Change this payment to LKR {lkr(pick.credit)} and link it.</label>
+      )}
+      {error && <p className="error">{error}</p>}
+      {entry.lines.length > 0 && (
+        <button className="btn primary" disabled={busy || !pick || (!pick.exact && !takeBank)}
+          onClick={() => run(() => rpc('cc_link_parked', { p_id: c.id, p_line_id: pick.id, p_take_bank_amount: !pick.exact && takeBank }))}>
+          Link and send to finance
+        </button>
+      )}
+      <p className="hint">Not listed? If the customer paid a different amount, <Link to={`/transfer?edit=${c.id}`}>edit the parked entry</Link> first.</p>
     </div>
   );
 }

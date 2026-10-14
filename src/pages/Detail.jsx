@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { supabase, COLLECTION_SELECT, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, ref, fmtDate, fmtDateTime, personName } from '../lib/format';
@@ -10,14 +10,16 @@ import SignedImage from '../components/SignedImage';
 import DepositLink from '../components/DepositLink';
 import StatementView from '../components/StatementView';
 import Reminders from '../components/Reminders';
+import ReceiptFiles from '../components/ReceiptFiles';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
-  RejectPanel, ResubmitPanel, REJECTABLE,
+  RejectPanel, ResubmitPanel, REJECTABLE, ParkedMatchPanel,
 } from './actions';
 import { useCardDraft, CardFacts, CardSetOffPanel, CardReviewPanel, CardReopenPanel } from './cardActions';
 
 export default function Detail() {
   const { id } = useParams();
+  const [params] = useSearchParams();
   const { role, session, isAdmin } = useAuth();
   const uid = session.user.id;
   const [c, setC] = useState(undefined);
@@ -86,6 +88,7 @@ export default function Detail() {
   const canReject = isFinance && isCheque && REJECTABLE.includes(c.status);
   const canReturn = isFinance && isCheque && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
+  const canEditFiles = (isTransfer || isCard) && c.created_by === uid && ['parked', 'review', 'relink'].includes(c.status);
   const shownAmount = c.collected_amount ?? c.expected_amount;
 
   return (
@@ -149,7 +152,7 @@ export default function Detail() {
       {isTransfer && c.status === 'relink' && (isFinance || (role === 'sales' && isCreator)) && <RelinkPanel c={c} onDone={load} />}
       {isTransfer && c.status === 'parked' && role === 'sales' && isCreator && (
         <>
-          <RelinkPanel c={c} onDone={load} parked />
+          <ParkedMatchPanel c={c} onDone={load} lineId={Number(params.get('line')) || null} />
           <p><Link className="btn" to={`/transfer?edit=${c.id}`}>Edit the parked entry</Link></p>
         </>
       )}
@@ -193,15 +196,12 @@ export default function Detail() {
               <dt>Amount</dt><dd>LKR {lkr(line.credit)}</dd>
             </dl>
           ) : <p className="muted">Not linked to a bank line.</p>}
-          <h2>Receipt</h2>
-          {c.receipt_path ? (photosGone ? <div className="img-missing">Receipt deleted after backup</div>
-            : <div className="slip-photo"><SignedImage path={c.receipt_path} alt="Receipt" /></div>)
-            : <p>No receipt. Reason given: {c.no_receipt_reason}</p>}
+          <ReceiptFiles c={c} label="Receipt" short="receipt" kind="receipt" photosGone={photosGone} canEdit={canEditFiles} onDone={load} />
           {c.notes && <p className="quote">Notes: {c.notes}</p>}
         </div>
       )}
 
-      {isCard && <CardFacts c={c} draft={draft} photosGone={photosGone} />}
+      {isCard && <CardFacts c={c} draft={draft} photosGone={photosGone} canEditFiles={canEditFiles} onDone={load} />}
 
       {isCheque && (
         <div className="facts">

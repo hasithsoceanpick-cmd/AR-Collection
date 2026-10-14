@@ -113,6 +113,7 @@ function Reconciliation() {
   const [remindLine, setRemindLine] = useState(null);
   const [remindAll, setRemindAll] = useState(false);
   const [sentMsg, setSentMsg] = useState(null);
+  const [myParked, setMyParked] = useState({});   // Sales: bank line id → my parked payments that could be it
 
   // Finance: who is in Sales, and when each unidentified line was last reminded about.
   const loadReminders = useCallback(async () => {
@@ -130,6 +131,15 @@ function Reconciliation() {
     setRemindLine(null); setRemindAll(false);
     setSentMsg({ lineId, text: `Reminder sent to ${who}.` });
   }
+
+  useEffect(() => {
+    if (role !== 'sales' || lines === null) return;
+    rpc('cc_parked_candidates').then((d) => {
+      const m = {};
+      for (const p of d ?? []) for (const l of p.lines) (m[l.id] ??= []).push({ ...p, line: l });
+      setMyParked(m);
+    }).catch(() => setMyParked({}));
+  }, [role, lines]);
 
   const load = useCallback(async () => {
     try {
@@ -198,7 +208,9 @@ function Reconciliation() {
                       {(role === 'sales' || role === 'finance') && <td>{isCard(l)
                         ? <Link className="small" to="/merchant" title="HNB card sales, paid in batches. Finance matches it to a merchant statement batch.">Card batch: merchant statement</Link>
                         : <>
-                          <Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link>
+                          {myParked[l.id] ? myParked[l.id].map((p) => (
+                            <Link key={p.id} className="btn small primary" to={`/c/${p.id}?line=${l.id}`} title={`Your parked payment from ${p.customer_name}, LKR ${lkr(p.amount)}`}>Match parked {ref(p.id)}</Link>
+                          )) : <Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link>}
                           {role === 'finance' && (
                             <div className="line-remind">
                               <button className="link small" onClick={() => { setRemindLine(remindLine === l.id ? null : l.id); setSentMsg(null); }}>Remind Sales</button>

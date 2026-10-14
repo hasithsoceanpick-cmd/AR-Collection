@@ -12,7 +12,7 @@ const endDate = (c) => c.closed_at ?? c.cancelled_at;
 // its deposit slip (shared with other collections on the slip) or an older single slip.
 function filesOf(c) {
   const f = c.cheques.map((q) => ({ path: q.photo_path, kind: 'cheque', q }));
-  if (c.receipt_path) f.push({ path: c.receipt_path, kind: 'receipt' });
+  for (const p of [c.receipt_path, ...(c.receipt_more ?? [])]) if (p) f.push({ path: p, kind: 'receipt' });
   if (c.deposit?.slip_path) f.push({ path: c.deposit.slip_path, kind: 'slip', shared: true });
   else if (c.deposit_slip_path) f.push({ path: c.deposit_slip_path, kind: 'slip' });
   return f.filter((x) => x.path);

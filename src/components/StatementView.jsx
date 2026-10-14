@@ -6,6 +6,7 @@ import { orderStatement } from '../lib/statementOrder';
 import { lkr, ref, fmtDate } from '../lib/format';
 import { TAGS } from '../lib/workflow';
 import { downloadStatements } from '../lib/statementExport';
+import { useAuth } from '../lib/auth';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const monthOf = (d) => (d ? d.slice(0, 7) : null);
@@ -21,6 +22,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const { role } = useAuth();
   const focusRef = useRef(null);
   const hi = useMemo(() => new Set(highlightIds), [highlightIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -72,7 +74,7 @@ export default function StatementView({ accountId, highlightIds = [], focusDate 
 
   if (error) return <p className="error">{error}</p>;
   if (!lines) return <p className="muted">Loading the statement…</p>;
-  if (!lines.length) return <p className="muted">No statement lines uploaded for this account yet.</p>;
+  if (!lines.length) return role === 'sales' ? null : <p className="muted">No statement lines uploaded for this account yet.</p>;
 
   const ins = shown.filter((l) => l.credit > 0);
   const rec = ins.filter((l) => ['deposit', 'transfer', 'cash', 'merchant'].includes(l.link_kind));

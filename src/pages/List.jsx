@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, COLLECTION_SELECT, db, SCHEMA } from '../lib/supabase';
+import { supabase, COLLECTION_SELECT, db, SCHEMA, rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { isOpen, waitingOnMe, nextStepText } from '../lib/workflow';
 import { lkr, ref, fmtDate, personName, daysAgo } from '../lib/format';
@@ -13,12 +13,19 @@ export default function List() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState(null);
   const [q, setQ] = useState('');
+  const [matches, setMatches] = useState({});   // Sales: parked payment id → bank lines that could be it
 
   const load = useCallback(async () => {
     const { data, error } = await db.from('collections').select(COLLECTION_SELECT).neq('kind', 'cash')
       .order('created_at', { ascending: false }).limit(500);
     if (error) setError(error.message); else setRows(data);
   }, []);
+
+  useEffect(() => {
+    if (role !== 'sales') return;
+    rpc('cc_parked_candidates').then((d) => setMatches(Object.fromEntries((d ?? []).filter((x) => x.lines.length).map((x) => [x.id, x.lines]))))
+      .catch(() => setMatches({}));
+  }, [role, rows]);
 
   useEffect(() => {
     load();
@@ -55,6 +62,7 @@ export default function List() {
     : current.list;
 
   const rejected = role === 'sales' ? groups.all.filter((c) => c.status === 'rejected' && (c.created_by === uid || isAdmin)) : [];
+  const parkedFound = role === 'sales' ? groups.all.filter((c) => c.status === 'parked' && matches[c.id]) : [];
   const photosDue = role === 'finance' ? groups.done.filter((c) =>
     !c.photos_deleted_at && c.collected_amount != null && daysAgo(c.closed_at ?? c.cancelled_at) >= 30).length : 0;
 
@@ -71,6 +79,15 @@ export default function List() {
           Finance rejected {rejected.length === 1 ? 'a collection' : `${rejected.length} collections`} back to you:{' '}
           {rejected.map((c, i) => <span key={c.id}>{i > 0 && ', '}<Link to={`/c/${c.id}`}>{ref(c.id)} {c.customer_name}</Link></span>)}.
           Open {rejected.length === 1 ? 'it' : 'each one'}, correct the invoices or settlement instructions, and send it back.
+        </div>
+      )}
+      {parkedFound.length > 0 && (
+        <div className="notice ok-notice">
+          {parkedFound.length === 1 ? 'A parked payment' : `${parkedFound.length} parked payments`} may now be in the bank:{' '}
+          {parkedFound.map((c, i) => {
+            const l = matches[c.id][0];
+            return <span key={c.id}>{i > 0 && '; '}<Link to={`/c/${c.id}?line=${l.id}`}>{ref(c.id)} {c.customer_name}</Link> (LKR {lkr(l.credit)}, {fmtDate(l.txn_date)}, {l.account_name})</span>;
+          })}. Open {parkedFound.length === 1 ? 'it' : 'each one'} to check the line, link it and send it to finance.
         </div>
       )}
       <div className="page-head">
@@ -125,6 +142,7 @@ export default function List() {
                 <span className="row-next">
                   {c.kind === 'cheque' && (c.status === 'assigned' || c.status === 'received')
                     ? `${personName(c.driver)}${c.collection_date && c.status === 'assigned' ? `, ${fmtDate(c.collection_date)}` : ''}`
+                    : c.status === 'parked' && matches[c.id] ? `Bank line found (${matches[c.id].length > 1 ? `${matches[c.id].length} possible` : `LKR ${lkr(matches[c.id][0].credit)}, ${fmtDate(matches[c.id][0].txn_date)}`}): open to link it`
                     : isOpen(c) ? nextStepText(c) : fmtDate(c.closed_at ?? c.cancelled_at)}
                 </span>
               </div>
