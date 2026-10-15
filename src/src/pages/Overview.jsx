@@ -119,7 +119,14 @@ export default function Overview() {
       </p>
 
       {/* ---------------- Receivables ---------------- */}
-      <h2 className="ov-title">Receivables</h2>
+      <h2 className="ov-title">Receivables (local sales)</h2>
+      {Number(R.ungrouped?.customers) > 0 && (
+        <div className="facts flag-card">
+          <p className="warn-text"><strong>{R.ungrouped.customers} customers (LKR {M(R.ungrouped.open)}) have no BC posting group in the app</strong>, so export customers among them can't be recognised and left out.
+            Upload the customer list again on <Link to="/customers">Customer data</Link>, with BC's <strong>Customer Posting Group</strong> and <strong>Payment Terms Code</strong> columns showing.</p>
+        </div>
+      )}
+      <p className="hint">Export customers are left out of this overview{Number(R.export_excluded?.customers) > 0 ? `: ${R.export_excluded.customers} customers, LKR ${lkr(R.export_excluded.open)} open` : ''}. Their data stays in the app and in BC.</p>
       <div className="kpi-grid">
         <Kpi label="Open receivables" value={`LKR ${M(R.open)}`} sub={`${R.invoices_open} invoices · ${R.customers_owing} customers`} />
         <Kpi label="Overdue" value={`LKR ${M(R.overdue)}`} sub={`${pct(R.overdue, R.open)}% of open`} tone={pct(R.overdue, R.open) > 50 ? 'warn' : null} />
@@ -172,7 +179,7 @@ export default function Overview() {
       {/* ---------------- Collections ---------------- */}
       <h2 className="ov-title">Collections in progress</h2>
       <div className="kpi-grid">
-        <Kpi label="In progress" value={`LKR ${M(P.total.amount)}`} sub={`${P.total.items} cheques and transfers`} />
+        <Kpi label="In progress" value={`LKR ${M(P.total.amount)}`} sub={`${P.total.items} cheques, transfers and card payments`} />
         <Kpi label="Pickups overdue" value={P.overdue_pickups.length} sub="assigned, collection date passed" tone={P.overdue_pickups.length ? 'warn' : null} />
         <Kpi label="Stuck over 5 days" value={P.stuck.length} sub="in the same stage" tone={P.stuck.length ? 'warn' : null} />
         <Kpi label={`Returned in ${monthLabel.split(' ')[0]}`} value={P.returned.items} sub={`LKR ${lkr(P.returned.amount)}`} tone={P.returned.items ? 'warn' : null} />

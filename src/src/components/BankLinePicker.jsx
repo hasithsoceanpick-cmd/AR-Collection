@@ -5,7 +5,9 @@ import { lkr, fmtDate } from '../lib/format';
 // Pick unlinked bank credit line(s).
 //  single:   value = line id,        onChange(line)
 //  multiple: value = [line ids],     onChange([lines]); `suggest(lines)` may return ids to pre-select.
-export default function BankLinePicker({ accountId, amount = null, exact = null, amounts = null, value, onChange, multiple = false, suggest = null, showAccount = false }) {
+// HNB merchant settlements ("HNB MERCHANT SLIPS") are left out: finance matches those
+// to merchant statement batches. `merchant` shows them instead (for that match).
+export default function BankLinePicker({ accountId, amount = null, exact = null, amounts = null, value, onChange, multiple = false, suggest = null, showAccount = false, merchant = false }) {
   const amountsKey = amounts ? amounts.join('|') : '';
   const [lines, setLines] = useState(null);
   const [q, setQ] = useState('');
@@ -16,6 +18,7 @@ export default function BankLinePicker({ accountId, amount = null, exact = null,
     setLines(null);
     let query = db.from('bank_credits').select('*').is('link_kind', null).order('txn_date', { ascending: false }).limit(500);
     if (accountId) query = query.eq('account_id', accountId);
+    query = merchant ? query.ilike('narration', '%MERCHANT SLIPS%') : query.not('narration', 'ilike', '%MERCHANT SLIPS%');
     if (exact != null) query = query.eq('credit', Number(exact));
     if (amounts?.length) query = query.in('credit', amounts.map(Number));
     query.then(({ data, error }) => {
@@ -29,7 +32,7 @@ export default function BankLinePicker({ accountId, amount = null, exact = null,
     });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, exact, amountsKey]);
+  }, [accountId, exact, amountsKey, merchant]);
 
   const chosen = multiple ? new Set(value ?? []) : new Set(value ? [value] : []);
   const shown = useMemo(() => {

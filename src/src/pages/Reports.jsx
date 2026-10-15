@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import { supabase, rpc, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { STATUS, TAGS, KIND_LABEL } from '../lib/workflow';
-import { lkr, ref, fmtDate, todayISO, daysAgo } from '../lib/format';
+import { lkr, ref, fmtDate, fmtDateTime, todayISO, daysAgo } from '../lib/format';
 import { TILE_URL, TILE_ATTR } from '../components/MapPicker';
 import StatusStamp from '../components/StatusStamp';
+import { SalesReminderForm } from '../components/Reminders';
 
 const MAP_COLORS = { submitted: '#E68A2E', assigned: '#2E3A87', collected: '#3E9FD6' };
 const MAP_LABELS = { submitted: 'Waiting for a driver', assigned: 'Assigned', collected: 'Collected, still with the driver' };
@@ -107,6 +108,38 @@ function Reconciliation() {
   const [open, setOpen] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [people, setPeople] = useState([]);
+  const [reminded, setReminded] = useState({});
+  const [remindLine, setRemindLine] = useState(null);
+  const [remindAll, setRemindAll] = useState(false);
+  const [sentMsg, setSentMsg] = useState(null);
+  const [myParked, setMyParked] = useState({});   // Sales: bank line id → my parked payments that could be it
+
+  // Finance: who is in Sales, and when each unidentified line was last reminded about.
+  const loadReminders = useCallback(async () => {
+    if (role !== 'finance') return;
+    const r = await rpc('cc_line_reminders').catch(() => []);
+    setReminded(Object.fromEntries((r ?? []).map((x) => [x.line_id ?? 'all', x])));
+  }, [role]);
+  useEffect(() => {
+    if (role !== 'finance') return;
+    db.from('profiles').select('id, full_name, email').eq('role', 'sales').eq('active', true).order('full_name').then(({ data }) => setPeople(data ?? []));
+    loadReminders();
+  }, [role, loadReminders]);
+  async function reminderSent(lineId, who) {
+    await loadReminders();
+    setRemindLine(null); setRemindAll(false);
+    setSentMsg({ lineId, text: `Reminder sent to ${who}.` });
+  }
+
+  useEffect(() => {
+    if (role !== 'sales' || lines === null) return;
+    rpc('cc_parked_candidates').then((d) => {
+      const m = {};
+      for (const p of d ?? []) for (const l of p.lines) (m[l.id] ??= []).push({ ...p, line: l });
+      setMyParked(m);
+    }).catch(() => setMyParked({}));
+  }, [role, lines]);
 
   const load = useCallback(async () => {
     try {
@@ -132,6 +165,10 @@ function Reconciliation() {
   if (lines === null) return <p className="muted">Loading…</p>;
   const byAcct = lines.reduce((m, l) => ((m[l.account_name] ??= []).push(l), m), {});
   const sum = (a, k) => a.reduce((s, x) => s + Number(x[k]), 0);
+  const isCard = (l) => /MERCHANT SLIPS/i.test(l.narration);
+  const customerLines = lines.filter((l) => !isCard(l));
+  const cols = 5 + (role === 'sales' || role === 'finance' ? 1 : 0) + (role === 'finance' ? 1 : 0);
+  const lastAll = reminded.all;
 
   return (
     <>
@@ -144,21 +181,55 @@ function Reconciliation() {
 
       <div className="facts">
         <h2>Money in the bank, not yet identified</h2>
-        <p className="hint">Every one of these should become a receipt in the app, or be tagged by finance as not a customer receipt.</p>
+        <p className="hint">Every one of these should become a receipt in the app, or be tagged by finance as not a customer receipt. HNB merchant settlements (card sales) clear when finance adds the merchant statement that shows their batch.</p>
         {lines.length === 0 && <p className="muted">Everything is identified.</p>}
+        {role === 'finance' && customerLines.length > 0 && (
+          <div className="remind">
+            <p className="remind-what"><strong>{customerLines.length} customer line{customerLines.length === 1 ? '' : 's'} not identified</strong>, LKR {lkr(sum(customerLines, 'credit'))}, the oldest {daysAgo(customerLines[0].txn_date)} days. Remind Sales to check which are their customers' payments.</p>
+            {lastAll && <p className="hint">Last reminded by {lastAll.last_by} on {fmtDateTime(lastAll.last_at)} ({lastAll.to_names}).</p>}
+            {sentMsg && sentMsg.lineId === null && <p className="ok-text">{sentMsg.text}</p>}
+            {remindAll
+              ? <SalesReminderForm people={people} onSent={(who) => reminderSent(null, who)} onCancel={() => setRemindAll(false)} />
+              : <div className="row"><button className="btn" onClick={() => { setRemindAll(true); setSentMsg(null); }}>Remind Sales about all of them</button></div>}
+          </div>
+        )}
         {Object.entries(byAcct).map(([acct, ls]) => (
           <div key={acct}>
             <h3 className="subhead">{acct}: {ls.length} lines, LKR {lkr(sum(ls, 'credit'))}</h3>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">LKR</th><th className="num">Days</th>{role === 'finance' && <th>Tag as</th>}</tr></thead>
+                <thead><tr><th>Date</th><th>Narration</th><th>Ref</th><th className="num">LKR</th><th className="num">Days</th>{(role === 'sales' || role === 'finance') && <th></th>}{role === 'finance' && <th>Tag as</th>}</tr></thead>
                 <tbody>
                   {ls.map((l) => (
-                    <tr key={l.id}>
+                    <Fragment key={l.id}>
+                    <tr>
                       <td>{fmtDate(l.txn_date)}</td><td>{l.narration}</td><td>{l.reference}</td>
                       <td className="num">{lkr(l.credit)}</td><td className="num">{daysAgo(l.txn_date)}</td>
+                      {(role === 'sales' || role === 'finance') && <td>{isCard(l)
+                        ? <Link className="small" to="/merchant" title="HNB card sales, paid in batches. Finance matches it to a merchant statement batch.">Card batch: merchant statement</Link>
+                        : <>
+                          {myParked[l.id] ? myParked[l.id].map((p) => (
+                            <Link key={p.id} className="btn small primary" to={`/c/${p.id}?line=${l.id}`} title={`Your parked payment from ${p.customer_name}, LKR ${lkr(p.amount)}`}>Match parked {ref(p.id)}</Link>
+                          )) : <Link className="btn small" to={`/transfer?line=${l.id}`}>Record</Link>}
+                          {role === 'finance' && (
+                            <div className="line-remind">
+                              <button className="link small" onClick={() => { setRemindLine(remindLine === l.id ? null : l.id); setSentMsg(null); }}>Remind Sales</button>
+                              {sentMsg?.lineId === l.id && <span className="ok-text small">{sentMsg.text}</span>}
+                              {reminded[l.id] && <span className="muted small">Reminded {fmtDateTime(reminded[l.id].last_at)}{reminded[l.id].to_names !== 'Sales' ? ` (${reminded[l.id].to_names})` : ''}</span>}
+                            </div>
+                          )}
+                        </>}</td>}
                       {role === 'finance' && <td className="tag-btns">{Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l.id, k)}>{v}</button>)}</td>}
                     </tr>
+                    {remindLine === l.id && (
+                      <tr className="remind-row"><td colSpan={cols}>
+                        <div className="remind">
+                          <p className="remind-what"><strong>Remind Sales about LKR {lkr(l.credit)} on {fmtDate(l.txn_date)}</strong> ({l.narration}). The reminder opens Record transfer on this line.</p>
+                          <SalesReminderForm lineId={l.id} people={people} onSent={(who) => reminderSent(l.id, who)} onCancel={() => setRemindLine(null)} />
+                        </div>
+                      </td></tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -259,7 +330,8 @@ const TABS = [
 ];
 
 export default function Reports() {
-  const [tab, setTab] = useState('map');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get('tab') === 'recon' ? 'rec' : 'map');
   const T = TABS.find((t) => t.key === tab);
   return (
     <section className="wide">

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase, rpc, uploadPhoto, db } from '../lib/supabase';
 import BankLinePicker from '../components/BankLinePicker';
 import StatementView from '../components/StatementView';
-import { lkr, todayISO } from '../lib/format';
+import { lkr, todayISO, fmtDate } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
+import InvoicePicker from '../components/InvoicePicker';
 
 function useAction(onDone) {
   const [busy, setBusy] = useState(false);
@@ -168,10 +169,17 @@ export function CollectPanel({ c, onDone, asFinance }) {
 // Step 5 — finance receives the cheques
 export function ReceivePanel({ c, onDone }) {
   const { busy, error, run } = useAction(onDone);
+  if (c.split_needed && !c.split_at) return (
+    <div className="action">
+      <h2>Receive the cheques</h2>
+      <p className="warn-text">The driver collected more than one cheque. Waiting for Sales to say which invoices each cheque pays, before the cheques can be received.</p>
+    </div>
+  );
   return (
     <div className="action">
       <h2>Receive the cheques</h2>
       <p className="hint">Confirm you have the physical cheques from the driver and they match the photos below.</p>
+      <AmountCheck c={c} />
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={busy} onClick={() => run(() => rpc('cc_receive', { p_id: c.id }))}>
         I have the cheques
@@ -180,20 +188,31 @@ export function ReceivePanel({ c, onDone }) {
   );
 }
 
+// The collected amount against the invoices on the request: when they differ, Sales may need to re-instruct.
+function AmountCheck({ c }) {
+  if (c.collected_amount == null || !(c.settlement ?? []).length) return null;
+  const inv = (c.settlement ?? []).reduce((t, s) => t + Number(s.remaining_amount), 0);
+  const d = Math.round((Number(c.collected_amount) - inv) * 100) / 100;
+  if (Math.abs(d) < 0.005) return null;
+  return <p className="warn-text">Collected LKR {lkr(c.collected_amount)} against invoices of LKR {lkr(inv)} ({d < 0 ? `LKR ${lkr(-d)} short` : `LKR ${lkr(d)} over`}).
+    If Sales must give new settlement instructions, use <strong>Reject: back to Sales</strong> below.</p>;
+}
+
 export function CancelPanel({ c, onDone }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const { busy, error, run } = useAction(onDone);
-  if (!open) return <button className="btn ghost danger-text" onClick={() => setOpen(true)}>Cancel collection</button>;
+  const what = c.kind === 'cheque' ? 'collection' : 'payment';
+  if (!open) return <button className="btn ghost danger-text" onClick={() => setOpen(true)}>Cancel {what}</button>;
   return (
     <form className="action cancel-box" onSubmit={(e) => { e.preventDefault(); run(() => rpc('cc_cancel', { p_id: c.id, p_reason: reason })); }}>
-      <h2>Cancel this collection?</h2>
+      <h2>Cancel this {what}?</h2>
       <label className="field"><span className="flabel">Reason</span>
         <input required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Customer paid by bank transfer" />
       </label>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <button className="btn danger" disabled={busy}>Cancel collection</button>
+        <button className="btn danger" disabled={busy}>Cancel {what}</button>
         <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Keep it</button>
       </div>
     </form>
@@ -234,7 +253,7 @@ export function TransferReviewPanel({ c, line, onDone }) {
 }
 
 // Transfers — relink after being sent back or reopened
-export function RelinkPanel({ c, onDone }) {
+export function RelinkPanel({ c, onDone, parked = false }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState(c.account_id ? String(c.account_id) : '');
   const [line, setLine] = useState(null);
@@ -244,7 +263,8 @@ export function RelinkPanel({ c, onDone }) {
   }, []);
   return (
     <div className="action">
-      <h2>Link to the right bank line</h2>
+      <h2>{parked ? 'Link the bank line and send to finance' : 'Link to the right bank line'}</h2>
+      {parked && <p className="hint">Parked: finance can't see this yet. When the payment shows on the bank statement in the app, pick its line here (exact amount LKR {lkr(c.expected_amount)}). If the bank amount differs, edit the entry first.</p>}
       <label className="field"><span className="flabel">Paid into</span>
         <select value={accountId} onChange={(e) => { setAccountId(e.target.value); setLine(null); }}>
           <option value="">Choose the bank account</option>
@@ -252,10 +272,73 @@ export function RelinkPanel({ c, onDone }) {
         </select></label>
       {accountId && <BankLinePicker accountId={Number(accountId)} exact={c.expected_amount} value={line?.id} onChange={setLine} />}
       {error && <p className="error">{error}</p>}
-      <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc('cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
+      <button className="btn primary" disabled={busy || !line} onClick={() => run(() => rpc(parked ? 'cc_send_parked' : 'cc_relink_transfer', { p_id: c.id, p_account_id: Number(accountId), p_line_id: line.id }))}>
         Link and send to finance
       </button>
       {accountId && <StatementView key={accountId} accountId={Number(accountId)} highlightIds={line ? [line.id] : []} focusDate={line?.txn_date} compact />}
+    </div>
+  );
+}
+
+// Sales — match a parked transfer to its bank line (any account) and send it to finance.
+// Lines of the same amount, or a close one (the bank took charges), are offered best first.
+export function ParkedMatchPanel({ c, onDone, lineId = null }) {
+  const [entry, setEntry] = useState(null);
+  const [pick, setPick] = useState(null);
+  const [takeBank, setTakeBank] = useState(false);
+  const { busy, error, run } = useAction(onDone);
+  useEffect(() => {
+    rpc('cc_parked_candidates', { p_id: c.id }).then((d) => {
+      const e = d?.[0] ?? { lines: [] };
+      setEntry(e);
+      const pre = e.lines.find((l) => l.id === lineId) ?? (e.lines.length === 1 && e.lines[0].exact ? e.lines[0] : null);
+      if (pre) setPick(pre);
+    }).catch(() => setEntry({ lines: [] }));
+  }, [c.id, c.collected_amount, lineId]);
+  if (!entry) return <div className="action"><p className="muted">Looking for the bank line…</p></div>;
+  const amt = Number(c.collected_amount);
+  const diffText = (l) => `LKR ${lkr(Math.abs(Number(l.diff)))} ${Number(l.diff) < 0 ? 'less' : 'more'}`;
+  return (
+    <div className="action parked-match">
+      <h2>Match it to the bank line and send to finance</h2>
+      <p className="hint">Parked: finance can't see this yet. {entry.lines.length
+        ? `These money-in lines could be this payment of LKR ${lkr(amt)}. Pick the right one.`
+        : `No bank line of LKR ${lkr(amt)}, or close to it, is in the app yet. When finance uploads the statement it shows here, and you are told.`}</p>
+      {entry.lines.length > 0 && (
+        <ul className="pm-lines">
+          {entry.lines.map((l) => (
+            <li key={l.id} className={pick?.id === l.id ? 'on' : ''}>
+              <label>
+                <input type="radio" name="parked-line" checked={pick?.id === l.id} onChange={() => { setPick(l); setTakeBank(false); }} />
+                <span className="lp-main">
+                  <span className="lp-narr">{l.narration || '(no narration)'}</span>
+                  <span className="lp-meta">
+                    <span>{fmtDate(l.txn_date)}</span><span>{l.account_name}</span>
+                    {l.reference && <span>Ref {l.reference}</span>}
+                    {l.cheque_no && <span>Cheque {l.cheque_no}</span>}
+                    {l.exact ? <span className="lp-exact">Same amount</span> : <span className="lp-close">{diffText(l)}</span>}
+                    {l.names_customer && <span className="lp-exact">Customer's name</span>}
+                    {l.cheque_match && <span className="lp-exact">Cheque number</span>}
+                  </span>
+                </span>
+                <span className="num lp-amt">{lkr(l.credit)}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      {pick && !pick.exact && (
+        <label className="check warn-box"><input type="checkbox" checked={takeBank} onChange={(e) => setTakeBank(e.target.checked)} />
+          The bank received LKR {lkr(pick.credit)}, {diffText(pick)} than entered. Change this payment to LKR {lkr(pick.credit)} and link it.</label>
+      )}
+      {error && <p className="error">{error}</p>}
+      {entry.lines.length > 0 && (
+        <button className="btn primary" disabled={busy || !pick || (!pick.exact && !takeBank)}
+          onClick={() => run(() => rpc('cc_link_parked', { p_id: c.id, p_line_id: pick.id, p_take_bank_amount: !pick.exact && takeBank }))}>
+          Link and send to finance
+        </button>
+      )}
+      <p className="hint">Not listed? If the customer paid a different amount, <Link to={`/transfer?edit=${c.id}`}>edit the parked entry</Link> first.</p>
     </div>
   );
 }
@@ -308,6 +391,130 @@ export function ReturnChequePanel({ c, cheques, onDone }) {
         <button className="btn danger" disabled={busy || !chequeId} onClick={() => run(() => rpc('cc_return_cheque', { p_cheque_id: Number(chequeId), p_reason: reason }))}>Mark returned</button>
         <button className="btn ghost" onClick={() => setOpen(false)}>Back</button>
       </div>
+    </div>
+  );
+}
+
+// Sales says which of its invoices each cheque pays (only when there are 2+ cheques).
+export function SplitPanel({ c, cheques, onDone }) {
+  const inv = (c.settlement ?? []).filter((s) => Number(s.remaining_amount) > 0);
+  const [alloc, setAlloc] = useState(() => {
+    const a = {};
+    for (const q of cheques) for (const s of inv) if (Math.abs(Number(s.remaining_amount) - Number(q.amount)) < 0.005 && !Object.values(a).some((x) => x[s.document_no])) a[q.id] = { ...(a[q.id] ?? {}), [s.document_no]: String(q.amount) };
+    return a;
+  });
+  const { busy, error, run } = useAction(onDone);
+  const set = (qid, doc, v) => setAlloc((a) => ({ ...a, [qid]: { ...(a[qid] ?? {}), [doc]: v.replace(/[^0-9.]/g, '') } }));
+  const qTotal = (qid) => Object.values(alloc[qid] ?? {}).reduce((t, v) => t + (Number(v) || 0), 0);
+  const invTotal = (doc) => cheques.reduce((t, q) => t + (Number(alloc[q.id]?.[doc]) || 0), 0);
+  const problems = [
+    ...cheques.filter((q) => qTotal(q.id) === 0).map((q) => `Cheque ${q.cheque_no} has no invoices`),
+    ...cheques.filter((q) => qTotal(q.id) > Number(q.amount) + 0.004).map((q) => `Cheque ${q.cheque_no}: more than LKR ${lkr(q.amount)} split onto it`),
+    ...inv.filter((s) => invTotal(s.document_no) > Number(s.remaining_amount) + 0.004).map((s) => `${s.document_no}: more than its open LKR ${lkr(s.remaining_amount)}`),
+  ];
+  const payload = cheques.flatMap((q) => Object.entries(alloc[q.id] ?? {}).filter(([, v]) => Number(v) > 0).map(([doc, v]) => ({ cheque_id: q.id, document_no: doc, amount: Number(v) })));
+  return (
+    <div className="action">
+      <h2>Which invoices does each cheque pay?</h2>
+      <p className="hint">The customer gave {cheques.length} cheques. Using your invoice list, enter the amount of each invoice paid by each cheque. An invoice can be split across cheques; anything a cheque pays beyond its invoices stays unapplied on the customer.</p>
+      <div className="table-wrap flat"><table className="table split-table">
+        <thead><tr><th>Invoice (open LKR)</th>{cheques.map((q) => <th key={q.id} className="num">Cheque {q.cheque_no}<div className="muted small">LKR {lkr(q.amount)}</div></th>)}</tr></thead>
+        <tbody>
+          {inv.map((s) => (
+            <tr key={s.document_no}><td>{s.document_no} <span className="muted">({lkr(s.remaining_amount)})</span></td>
+              {cheques.map((q) => <td key={q.id}><input inputMode="decimal" className="num" value={alloc[q.id]?.[s.document_no] ?? ''} onChange={(e) => set(q.id, s.document_no, e.target.value)} placeholder="0" /></td>)}</tr>
+          ))}
+          <tr className="total-row"><td>On this cheque</td>{cheques.map((q) => <td key={q.id} className="num">{lkr(qTotal(q.id))}{Number(q.amount) - qTotal(q.id) > 0.004 && <div className="muted small">{lkr(Number(q.amount) - qTotal(q.id))} unapplied</div>}</td>)}</tr>
+        </tbody>
+      </table></div>
+      {problems.map((p) => <p key={p} className="error">{p}</p>)}
+      {error && <p className="error">{error}</p>}
+      <button className="btn primary" disabled={busy || problems.length > 0} onClick={() => run(() => rpc('cc_split_cheques', { p_id: c.id, p_alloc: payload }))}>Save the split</button>
+    </div>
+  );
+}
+
+// Finance — reject a cheque collection back to Sales (new invoices / settlement instructions needed)
+export const REJECTABLE = ['submitted', 'assigned', 'collected', 'received'];
+export function RejectPanel({ c, onDone, startOpen = false }) {
+  const [open, setOpen] = useState(startOpen);
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useAction(onDone);
+  if (!open) return <button className="btn ghost" onClick={() => setOpen(true)}>Reject: back to Sales</button>;
+  return (
+    <form className="action cancel-box" onSubmit={(e) => { e.preventDefault(); run(() => rpc('cc_reject', { p_id: c.id, p_note: note })); }}>
+      <h2>Reject and send back to Sales?</h2>
+      <p className="hint">For when Sales must change the invoices or the settlement instructions, for example because the cheque amount is different.
+        Sales sees it as Rejected with your note, corrects it and sends it back; it then returns to this step.
+        {c.status === 'assigned' && ' The driver is told not to collect it for now.'}</p>
+      <label className="field"><span className="flabel">What should Sales change?</span>
+        <textarea required rows="3" value={note} onChange={(e) => setNote(e.target.value)}
+          placeholder="Cheque is LKR 12,500, not 15,000. Tell us which invoices it pays." /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="btn danger" disabled={busy || !note.trim()}>Reject</button>
+        <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Keep it</button>
+      </div>
+    </form>
+  );
+}
+
+// Sales — correct a rejected collection and send it back to finance
+export function ResubmitPanel({ c, cheques, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [docs, setDocs] = useState((c.settlement ?? []).map((s) => s.document_no));
+  const [invTotal, setInvTotal] = useState(null);
+  const [instructions, setInstructions] = useState(c.settlement_instructions ?? '');
+  const [amount, setAmount] = useState(c.expected_amount != null ? Number(c.expected_amount).toFixed(2) : '');
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useAction(onDone);
+  const collected = ['collected', 'received'].includes(c.rejected_from);
+  const chequeTotal = cheques.reduce((t, q) => t + Number(q.amount), 0);
+  const target = collected ? chequeTotal : Number(String(amount).replace(/,/g, '')) || 0;
+  const total = invTotal ?? (c.settlement ?? []).reduce((t, s) => t + Number(s.remaining_amount), 0);
+  const diff = Math.round((target - total) * 100) / 100;
+
+  return (
+    <div className="action reject-box">
+      <h2>Rejected by finance: correct it and send it back</h2>
+      <p className="quote">{c.reject_note}</p>
+      {!open ? (
+        <div className="row"><button className="btn primary" onClick={() => setOpen(true)}>Reopen and correct</button></div>
+      ) : (
+        <form className="stack" onSubmit={(e) => {
+          e.preventDefault();
+          run(() => rpc('cc_resubmit', { p_id: c.id, p: { settlement_docs: docs, settlement_instructions: instructions, note,
+            expected_amount: collected ? null : String(amount).replace(/,/g, '') } }));
+        }}>
+          {collected && <p className="hint">The driver collected {cheques.length === 1 ? 'a cheque' : `${cheques.length} cheques`} for <strong>LKR {lkr(chequeTotal)}</strong>.
+            Tick the invoices it pays, add or remove invoices, and say how to settle them.</p>}
+          {c.customer_no ? (
+            <div className="field"><span className="flabel">Invoices being settled</span>
+              <InvoicePicker customerNo={c.customer_no} selected={docs} snapshot={c.settlement ?? []} collectionId={c.id}
+                onChange={(d, t) => { setDocs(d); setInvTotal(t); }} />
+            </div>
+          ) : <p className="hint">This customer isn't in the BC customer list, so there are no invoices to tick. Use the settlement instructions.</p>}
+          {!collected && (
+            <label className="field"><span className="flabel">Expected amount (LKR)</span>
+              <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+          )}
+          {docs.length > 0 && Math.abs(diff) >= 0.005 && target > 0 && (
+            <p className="warn-text">{diff < 0
+              ? `The ticked invoices are LKR ${lkr(-diff)} more than ${collected ? 'the cheque' : 'the expected amount'}: the oldest are settled first, unless your instructions say otherwise.`
+              : `LKR ${lkr(diff)} more than the ticked invoices: the excess stays unapplied on the customer, unless your instructions say otherwise.`}</p>
+          )}
+          <label className="field"><span className="flabel">Settlement instructions{docs.length ? ' (optional)' : ''}</span>
+            <textarea rows="2" value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="E.g. BB-01435 in full, the balance to BB-01367" /></label>
+          <label className="field"><span className="flabel">Note for finance (optional)</span>
+            <textarea rows="2" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Customer short paid; balance next week" /></label>
+          {cheques.length > 1 && <p className="hint">There are {cheques.length} cheques: after you send it, you'll be asked again which invoices each cheque pays.</p>}
+          {error && <p className="error">{error}</p>}
+          <div className="row">
+            <button className="btn primary" disabled={busy || (!docs.length && !instructions.trim())}>Send back to finance</button>
+            <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Close</button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

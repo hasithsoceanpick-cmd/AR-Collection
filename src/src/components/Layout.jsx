@@ -3,26 +3,37 @@ import { useAuth } from '../lib/auth';
 import { IS_DEMO, switchMode } from '../lib/supabase';
 import Notifications from './Notifications';
 import InstallButton from './InstallButton';
+import { useChatUnread } from '../lib/chat';
 
 const ROLE_LABEL = { sales: 'Sales', driver: 'Driver', finance: 'Finance', executive: 'Management' };
 
-export function navLinks(role) {
+export function navLinks(role, isAdmin = false) {
   const s = role === 'sales', f = role === 'finance', d = role === 'driver';
   if (role === 'executive') return [
     { to: '/', label: 'Overview', end: true, main: true },
     { to: '/collections', label: 'Collections', main: true },
     { to: '/reports', label: 'Reports', main: true },
     { to: '/deposits', label: 'Deposits' },
+    { to: '/cash', label: 'Cash' },
+    { to: '/merchant', label: 'Merchant statements' },
+    { to: '/not-in-bc', label: 'Not in BC yet' },
+    { to: '/bank-rec', label: 'Bank rec' },
+    { to: '/bc-check', label: 'BC check' },
+    { to: '/chat', label: 'Team chat', chat: true },
     { to: '/account', label: 'Account' },
   ];
   return [
     { to: '/', label: 'Collections', end: true, main: true },
-    ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }] : []),
+    ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }, { to: '/card', label: 'Record card payment' },
+      { to: '/cash', label: s ? 'Cash handover' : 'Cash' }, { to: '/merchant', label: 'Merchant statements' }, { to: '/not-in-bc', label: 'Not in BC yet' }] : []),
     ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),
     { to: '/reports', label: 'Reports', main: true },
-    ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }] : []),
+    ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }, { to: '/bc-export', label: 'Export to BC' },
+      { to: '/bc-check', label: 'BC check' }, { to: '/bank-rec', label: 'Bank rec' }] : []),
     ...(s || f ? [{ to: '/customers', label: 'Customer data' }] : []),
     ...(f ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
+    ...(f && isAdmin ? [{ to: '/backup', label: 'Data backup' }] : []),
+    { to: '/chat', label: 'Team chat', chat: true },
     { to: '/account', label: 'Account' },
   ];
 }
@@ -46,7 +57,8 @@ function ViewAs() {
 
 export default function Layout() {
   const { profile, role, isAdmin, actingRole } = useAuth();
-  const links = navLinks(role);
+  const links = navLinks(role, isAdmin);
+  const unread = useChatUnread();
   return (
     <div className={IS_DEMO ? 'shell is-demo' : 'shell'}>
       <header className="topbar">
@@ -80,9 +92,11 @@ export default function Layout() {
       )}
       <nav className="sidenav" aria-label="Main">
         {links.map((l) => (
-          <NavLink key={l.to} to={l.to} end={l.end} className={l.main ? 'nav-main' : 'nav-extra'}>{l.label}</NavLink>
+          <NavLink key={l.to} to={l.to} end={l.end} className={l.main ? 'nav-main' : 'nav-extra'}>
+            {l.label}{l.chat && unread > 0 && <span className="nav-badge" aria-label={`${unread} unread`}>{unread > 99 ? '99+' : unread}</span>}
+          </NavLink>
         ))}
-        <NavLink to="/more" className="nav-more">More</NavLink>
+        <NavLink to="/more" className="nav-more">More{unread > 0 && <span className="nav-badge" aria-label={`${unread} unread in Team chat`}>{unread > 99 ? '99+' : unread}</span>}</NavLink>
       </nav>
       <main className="content">
         <Outlet />
