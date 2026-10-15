@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { db, rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
@@ -7,7 +7,7 @@ import { fetchAll } from '../lib/bcimport';
 import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
 import Reminders from '../components/Reminders';
-import { NumberCheck, Renumber } from '../components/DocNumbers';
+import { NumberCheck, Renumber, NumberEditor } from '../components/DocNumbers';
 
 export const chRef = (id) => `CH-${String(id).padStart(5, '0')}`;
 const HANDOVER_SELECT = '*, creator:profiles!cash_handovers_created_by_fkey(full_name,email), receiver:profiles!cash_handovers_received_by_fkey(full_name,email)';
@@ -47,6 +47,7 @@ export function amountInWords(amount) {
 // =====================================================================
 export function CashList() {
   const { role } = useAuth();
+  const [params] = useSearchParams();
   const [handovers, setHandovers] = useState(null);
   const [lines, setLines] = useState([]);
   const [error, setError] = useState('');
@@ -118,6 +119,7 @@ export function CashList() {
         )}
       </div>
       {role === 'finance' && <BankedHistory onDone={load} />}
+      {role === 'finance' && <NumberEditor series="CSHRC" defaultOpen={params.get('numbers') === '1'} />}
     </section>
   );
 }

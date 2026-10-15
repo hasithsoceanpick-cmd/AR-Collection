@@ -781,3 +781,7 @@ td.num.out { color: var(--red); }
 .number-check label.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; }
 .number-check label.check input { width: auto; min-width: 0; padding: 0; height: auto; border: 0; }
 .export-bar .number-check input[type=checkbox] { width: auto; }
+.number-editor .row { margin: 0.5rem 0; }
+.number-editor .search { flex: 1; min-width: 12rem; }
+.number-editor .ne-input { width: 8rem; }
+.nc-app { display: grid; gap: 0.2rem; }

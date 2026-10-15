@@ -4,7 +4,7 @@ import { db, rpc } from '../lib/supabase';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { parseBankLedger, parseDetailedCustLedger, fetchAll } from '../lib/bcimport';
 import { useAuth } from '../lib/auth';
-import { Renumber } from '../components/DocNumbers';
+import { Renumber, NumberEditor } from '../components/DocNumbers';
 
 const STATUS = {
   posted: { label: 'Posted', cls: 'ok' },
@@ -162,6 +162,7 @@ export default function BcCheck() {
           </table>
         </div>
       )}
+      {role === 'finance' && <NumberEditor series="BAKRC" defaultOpen={new URLSearchParams(window.location.search).get('numbers') === '1'} />}
     </section>
   );
 }
