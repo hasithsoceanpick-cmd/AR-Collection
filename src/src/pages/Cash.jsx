@@ -7,6 +7,7 @@ import { fetchAll } from '../lib/bcimport';
 import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
 import Reminders from '../components/Reminders';
+import { NumberCheck, Renumber } from '../components/DocNumbers';
 
 export const chRef = (id) => `CH-${String(id).padStart(5, '0')}`;
 const HANDOVER_SELECT = '*, creator:profiles!cash_handovers_created_by_fkey(full_name,email), receiver:profiles!cash_handovers_received_by_fkey(full_name,email)';
@@ -324,6 +325,8 @@ export function CashDetail() {
   const { h, lines, error, load } = useHandover(id);
   const [counted, setCounted] = useState('');
   const [first, setFirst] = useState('');
+  const [bcOk, setBcOk] = useState(false);
+  const [numState, setNumState] = useState({ app: 0, bc: 0 });
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -351,7 +354,8 @@ export function CashDetail() {
           <tbody>{live.map((l) => (
             <tr key={l.id}><td>{l.customer_name}<div className="muted small">{l.customer_no ?? 'not in BC list'}</div></td>
               <td>{l.invoice_refs || <span className="muted">—</span>}{l.settlement_instructions && <div className="muted small">{l.settlement_instructions}</div>}</td>
-              <td>{l.cshrc_no ?? <span className="muted">given when received</span>}</td><td className="num">{lkr(l.collected_amount)}</td>
+              <td>{l.cshrc_no ?? <span className="muted">given when received</span>}
+                {l.cshrc_no && role === 'finance' && l.status !== 'cancelled' && <Renumber kind="cash" id={l.id} onDone={load} />}</td><td className="num">{lkr(l.collected_amount)}</td>
               {h.status === 'received' && <td className="num">{lkr(l.banked_amount)}</td>}</tr>
           ))}</tbody>
         </table></div>
@@ -369,10 +373,11 @@ export function CashDetail() {
             <label className="field"><span className="flabel">First CSHRC number</span><input inputMode="numeric" value={first} onChange={(e) => setFirst(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 541" />
               {first && <span className="hint">CSHRC-{first.padStart(7, '0')}{n > 1 ? ` to CSHRC-${String(Number(first) + n - 1).padStart(7, '0')}` : ''}</span>}</label>
           </div>
+          <NumberCheck code="CSHRC" first={first} count={n} bcOk={bcOk} setBcOk={setBcOk} onState={setNumState} />
           {counted !== '' && Math.abs(Number(counted) - Number(h.total)) >= 0.005 && <p className="warn-text">That's LKR {lkr(Math.abs(Number(counted) - Number(h.total)))} {Number(counted) < Number(h.total) ? 'short' : 'over'}. Count again, or send it back.</p>}
           <div className="btn-row">
-            <button className="btn primary" disabled={busy || !first || counted === '' || Math.abs(Number(counted) - Number(h.total)) >= 0.005}
-              onClick={() => run(() => rpc('cc_cash_receive', { p_id: h.id, p_counted: Number(counted), p_first_cshrc: Number(first) }))}>Receive the cash</button>
+            <button className="btn primary" disabled={busy || !first || counted === '' || Math.abs(Number(counted) - Number(h.total)) >= 0.005 || numState.app > 0 || (numState.bc > 0 && !bcOk)}
+              onClick={() => run(() => rpc('cc_cash_receive', { p_id: h.id, p_counted: Number(counted), p_first_cshrc: Number(first), p_bc_numbers_ok: bcOk }))}>Receive the cash</button>
           </div>
           <label className="field"><span className="flabel">Or send it back to Sales</span><textarea rows="2" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What doesn't match" /></label>
           <button className="btn" disabled={busy || !reason.trim()} onClick={() => run(() => rpc('cc_cash_return', { p_id: h.id, p_reason: reason }))}>Send back</button>

@@ -4,6 +4,7 @@ import { db, rpc } from '../lib/supabase';
 import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
+import { NumberCheck, NumberSeries, Renumber } from '../components/DocNumbers';
 
 const ISSUE = {
   needs_split: { text: "Waiting for Sales' cheque split", block: true },
@@ -70,6 +71,8 @@ export default function BcExport() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [bcOk, setBcOk] = useState(false);
+  const [numState, setNumState] = useState({ app: 0, bc: 0 });
 
   const load = useCallback(async () => {
     setError('');
@@ -84,7 +87,8 @@ export default function BcExport() {
   useEffect(() => { load(); }, [load]);
 
   const blocked = (r) => (r.built.issues ?? []).some((i) => ISSUE[i]?.block);
-  const needsNew = useMemo(() => (rows ?? []).some((r) => sel.has(r.key) && !r.doc_no), [rows, sel]);
+  const newCount = useMemo(() => (rows ?? []).filter((r) => sel.has(r.key) && !r.doc_no).length, [rows, sel]);
+  const needsNew = newCount > 0;
   const selTotal = (rows ?? []).filter((r) => sel.has(r.key)).reduce((a, r) => a + Number(r.credit), 0);
   // unapplied ticks: bank lines by id, cash receipts as negative ids, merchant batches as 'B<id>'
   const uid = (r) => (r.batch_id ? `B${r.batch_id}` : r.cash_id ? -r.cash_id : r.line_id);
@@ -106,14 +110,14 @@ export default function BcExport() {
       if (lineIds.length || cashIds.length) {
         res = await rpc('cc_bc_export', {
           p_line_ids: lineIds, p_first_no: needsNew ? Number(nextNo) : null,
-          p_unapplied_ok: [...unapplied].filter((x) => typeof x === 'number'), p_cash_ids: cashIds,
+          p_unapplied_ok: [...unapplied].filter((x) => typeof x === 'number'), p_cash_ids: cashIds, p_bc_numbers_ok: bcOk,
         });
       }
       if (batchIds.length) {
         // merchant batches continue the BAKRC numbering after the bank-line documents
         const m = await rpc('cc_bc_export_merchant', {
           p_batch_ids: batchIds, p_first_no: res.next_no ?? (needsNew ? Number(nextNo) : null),
-          p_unapplied_ok: [...unapplied].filter((x) => typeof x === 'string').map((x) => Number(x.slice(1))),
+          p_unapplied_ok: [...unapplied].filter((x) => typeof x === 'string').map((x) => Number(x.slice(1))), p_bc_numbers_ok: bcOk,
         });
         res = { docs: [...res.docs, ...m.docs], skipped: [...res.skipped, ...m.skipped], next_no: m.next_no };
       }
@@ -135,7 +139,7 @@ export default function BcExport() {
     <section className="wide">
       <div className="page-head"><h1>Export to BC</h1></div>
       <p className="lede">Closed receipts matched to a bank line (one BAKRC number per bank line, the bank as balancing account), HNB card batches (one BAKRC per batch: customers at the full card amount, the 3% commission to G/L 204003, Amana as balancing account),
-        and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. Numbers never change once given.</p>
+        and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. A document keeps its number when exported again; if BC posted it under another number, use Change number so the app matches BC.</p>
       {error && <p className="error">{error}</p>}
 
       {result && (
@@ -159,9 +163,10 @@ export default function BcExport() {
               <input inputMode="numeric" value={nextNo} onChange={(e) => setNextNo(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 2557" />
             </label>
             <p className="hint">{needsNew ? <>New numbers start at <strong>BAKRC-{String(nextNo || '0').padStart(7, '0')}</strong>. Check it's the next free number in BC.</> : 'The selected documents already have their numbers.'}</p>
+            {needsNew && <NumberCheck code="BAKRC" first={nextNo} count={newCount} bcOk={bcOk} setBcOk={setBcOk} onState={setNumState} />}
             <div className="export-go">
               <span>{sel.size} document{sel.size === 1 ? '' : 's'} · LKR {lkr(selTotal)}</span>
-              <button className="btn primary" disabled={busy || role !== 'finance' || sel.size === 0 || (needsNew && !nextNo)} onClick={doExport}>{busy ? 'Exporting…' : 'Export to Excel'}</button>
+              <button className="btn primary" disabled={busy || role !== 'finance' || sel.size === 0 || (needsNew && (!nextNo || numState.app > 0 || (numState.bc > 0 && !bcOk)))} onClick={doExport}>{busy ? 'Exporting…' : 'Export to Excel'}</button>
             </div>
           </div>
 
@@ -196,7 +201,8 @@ export default function BcExport() {
                               </div>)}
                             </td>
                             <td className="num">{lkr(r.credit)}</td>
-                            <td>{r.doc_no ? <><strong>{r.doc_no}</strong><div className="muted small">{r.preassigned ? 'given at receipt' : `exported ${r.export_count}×`}</div></> : <span className="muted">new</span>}</td>
+                            <td>{r.doc_no ? <><strong>{r.doc_no}</strong><div className="muted small">{r.preassigned ? 'given at receipt' : `exported ${r.export_count}×`}</div>
+                              {role === 'finance' && (r.cash_id ? <Renumber kind="cash" id={r.cash_id} onDone={load} /> : <Renumber docNo={r.doc_no} onDone={load} />)}</> : <span className="muted">new</span>}</td>
                           </tr>
                           {open === r.key && (
                             <tr className="sub-row"><td></td><td colSpan={6}>
@@ -219,6 +225,7 @@ export default function BcExport() {
           ))}
         </>
       )}
+      {role === 'finance' && <NumberSeries />}
       {mapDeposit && <ChequeMap depositId={mapDeposit} onDone={() => { setMapDeposit(null); load(); }} />}
     </section>
   );

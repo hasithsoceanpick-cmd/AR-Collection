@@ -768,3 +768,16 @@ td.num.out { color: var(--red); }
 .chat-compose { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
 .chat-compose textarea { width: 100%; }
 .backup-page > .action, .backup-page > .facts { margin-top: 1rem; }
+
+/* Receipt numbers (CSHRC / BAKRC) */
+.number-check { display: grid; gap: 0.25rem; }
+.number-check p { margin: 0; }
+.bc-note { color: var(--amber); font-weight: 700; }
+.renumber { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.3rem; }
+.renumber input { width: 11rem; }
+.renumber .error, .renumber .hint { flex-basis: 100%; }
+.number-series .row { margin-top: 0.5rem; }
+.number-series .inline-field input { width: 7rem; }
+.number-check label.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; }
+.number-check label.check input { width: auto; min-width: 0; padding: 0; height: auto; border: 0; }
+.export-bar .number-check input[type=checkbox] { width: auto; }
