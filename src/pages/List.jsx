@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth';
 import { isOpen, waitingOnMe, nextStepText } from '../lib/workflow';
 import { lkr, ref, fmtDate, personName, daysAgo } from '../lib/format';
 import StatusStamp from '../components/StatusStamp';
+import { BACKUP_DUE_DAYS } from './Backup';
 
 export default function List() {
   const { role, session, isAdmin } = useAuth();
@@ -14,12 +15,19 @@ export default function List() {
   const [tab, setTab] = useState(null);
   const [q, setQ] = useState('');
   const [matches, setMatches] = useState({});   // Sales: parked payment id → bank lines that could be it
+  const [lastBackup, setLastBackup] = useState(undefined);   // Finance Admin: when the last data backup was taken
 
   const load = useCallback(async () => {
     const { data, error } = await db.from('collections').select(COLLECTION_SELECT).neq('kind', 'cash')
       .order('created_at', { ascending: false }).limit(500);
     if (error) setError(error.message); else setRows(data);
   }, []);
+
+  useEffect(() => {
+    if (!(role === 'finance' && isAdmin)) return;
+    db.from('data_backups').select('taken_at').order('taken_at', { ascending: false }).limit(1)
+      .then(({ data, error: e }) => setLastBackup(e ? undefined : data?.[0]?.taken_at ?? null));
+  }, [role, isAdmin]);
 
   useEffect(() => {
     if (role !== 'sales') return;
@@ -68,6 +76,12 @@ export default function List() {
 
   return (
     <section>
+      {lastBackup !== undefined && (lastBackup === null || daysAgo(lastBackup) >= BACKUP_DUE_DAYS) && (
+        <div className="notice">
+          {lastBackup === null ? 'No data backup has been taken yet.' : `The last data backup was ${daysAgo(lastBackup)} days ago.`}{' '}
+          <Link to="/backup">Take a backup</Link>
+        </div>
+      )}
       {photosDue > 0 && (
         <div className="notice">
           {photosDue} finished collection{photosDue > 1 ? 's have' : ' has'} photos older than 30 days.{' '}

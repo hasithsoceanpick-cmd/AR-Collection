@@ -7,7 +7,7 @@ import { useChatUnread } from '../lib/chat';
 
 const ROLE_LABEL = { sales: 'Sales', driver: 'Driver', finance: 'Finance', executive: 'Management' };
 
-export function navLinks(role) {
+export function navLinks(role, isAdmin = false) {
   const s = role === 'sales', f = role === 'finance', d = role === 'driver';
   if (role === 'executive') return [
     { to: '/', label: 'Overview', end: true, main: true },
@@ -32,6 +32,7 @@ export function navLinks(role) {
       { to: '/bc-check', label: 'BC check' }, { to: '/bank-rec', label: 'Bank rec' }] : []),
     ...(s || f ? [{ to: '/customers', label: 'Customer data' }] : []),
     ...(f ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
+    ...(f && isAdmin ? [{ to: '/backup', label: 'Data backup' }] : []),
     { to: '/chat', label: 'Team chat', chat: true },
     { to: '/account', label: 'Account' },
   ];
@@ -56,7 +57,7 @@ function ViewAs() {
 
 export default function Layout() {
   const { profile, role, isAdmin, actingRole } = useAuth();
-  const links = navLinks(role);
+  const links = navLinks(role, isAdmin);
   const unread = useChatUnread();
   return (
     <div className={IS_DEMO ? 'shell is-demo' : 'shell'}>

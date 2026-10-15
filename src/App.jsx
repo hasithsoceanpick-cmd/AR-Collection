@@ -16,6 +16,7 @@ import Deposits from './pages/Deposits';
 import Reports from './pages/Reports';
 import Bank from './pages/Bank';
 import Chat from './pages/Chat';
+import Backup from './pages/Backup';
 import More from './pages/More';
 import Overview from './pages/Overview';
 import BcExport from './pages/BcExport';
@@ -27,7 +28,7 @@ import CardForm from './pages/CardForm';
 import NotInBc from './pages/NotInBc';
 
 function Gate() {
-  const { session, loading, role } = useAuth();
+  const { session, loading, role, isAdmin } = useAuth();
   if (loading) return <div className="login"><p className="muted">Loading…</p></div>;
   if (!session) return <Login />;
   if (!role) return <NoAccess />;
@@ -61,6 +62,7 @@ function Gate() {
         {role === 'finance' && <Route path="bank" element={<Bank />} />}
         <Route path="more" element={<More />} />
         <Route path="chat" element={<Chat />} />
+        {role === 'finance' && isAdmin && <Route path="backup" element={<Backup />} />}
         {role === 'finance' && <Route path="photos" element={<Photos />} />}
         {role === 'finance' && <Route path="users" element={<Users />} />}
         <Route path="account" element={<Account />} />

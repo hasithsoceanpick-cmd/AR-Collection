@@ -4,6 +4,7 @@ import { db, rpc } from '../lib/supabase';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { parseBankLedger, parseDetailedCustLedger, fetchAll } from '../lib/bcimport';
 import { useAuth } from '../lib/auth';
+import { Renumber, NumberEditor } from '../components/DocNumbers';
 
 const STATUS = {
   posted: { label: 'Posted', cls: 'ok' },
@@ -129,7 +130,8 @@ export default function BcCheck() {
               const problems = [...(d.bank_check?.problems ?? []), ...(d.customer_check?.problems ?? [])];
               return (
                 <tr key={d.id}>
-                  <td><strong>{d.doc_no}</strong><div className="muted small">exported {d.export_count}×</div></td>
+                  <td><strong>{d.doc_no}</strong><div className="muted small">exported {d.export_count}×</div>
+                    {role === 'finance' && <Renumber docNo={d.doc_no} onDone={load} />}</td>
                   <td>{fmtDate(d.posting_date)}</td>
                   <td>{d.account?.name ?? 'Cash in hand'}</td>
                   <td>{[...new Set((d.lines ?? []).map((l) => l.account_name))].join(', ')}<div className="muted small">{(d.lines ?? []).map((l) => l.applies_doc_no).filter(Boolean).join(', ')}</div></td>
@@ -160,6 +162,7 @@ export default function BcCheck() {
           </table>
         </div>
       )}
+      {role === 'finance' && <NumberEditor series="BAKRC" defaultOpen={new URLSearchParams(window.location.search).get('numbers') === '1'} />}
     </section>
   );
 }
