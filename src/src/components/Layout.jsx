@@ -24,6 +24,7 @@ export function navLinks(role, isAdmin = false) {
   ];
   return [
     { to: '/', label: 'Collections', end: true, main: true },
+    ...(f && isAdmin ? [{ to: '/admin', label: 'Admin overview' }] : []),
     ...(s || f ? [{ to: '/new', label: 'New collection', main: true }, { to: '/transfer', label: 'Record transfer' }, { to: '/card', label: 'Record card payment' },
       { to: '/cash', label: s ? 'Cash handover' : 'Cash' }, { to: '/merchant', label: 'Merchant statements' }, { to: '/not-in-bc', label: 'Not in BC yet' }] : []),
     ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),

@@ -22,6 +22,7 @@ import Overview from './pages/Overview';
 import BcExport from './pages/BcExport';
 import BcCheck from './pages/BcCheck';
 import BankRec from './pages/BankRec';
+import AdminOverview from './pages/AdminOverview';
 import { CashList, CashForm, CashDetail, CashReceipt } from './pages/Cash';
 import { MerchantPage, MerchantStatement, MerchantAdd } from './pages/Merchant';
 import CardForm from './pages/CardForm';
@@ -63,6 +64,7 @@ function Gate() {
         <Route path="more" element={<More />} />
         <Route path="chat" element={<Chat />} />
         {role === 'finance' && isAdmin && <Route path="backup" element={<Backup />} />}
+        {role === 'finance' && isAdmin && <Route path="admin" element={<AdminOverview />} />}
         {role === 'finance' && <Route path="photos" element={<Photos />} />}
         {role === 'finance' && <Route path="users" element={<Users />} />}
         <Route path="account" element={<Account />} />
