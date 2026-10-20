@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, rpc, db } from '../lib/supabase';
 import { readRows, findHeaderRow, headerCells, suggestMapping, parseStatement, detectFormat, mappingFor, formatForBank,
@@ -246,8 +246,17 @@ function BcListForm({ initial, onSaved, onClose }) {
   );
 }
 
-function AccountForm({ initial, bcList, accounts, onSaved, onClose, onListChanged }) {
-  const [f, setF] = useState(initial ? { ...initial, opening_balance: initial.opening_balance ?? '', bc_code: initial.bc_code ?? '' } : BLANK);
+// From a BC list entry: the account's bank, number and a short name like "HNB 2031".
+const fromBc = (b, s = BLANK) => ({ ...s, bc_code: b.code, bank: shortBank(b), account_no: b.account_no ?? s.account_no, name: `${shortBank(b)} ${suffix(b)}`.trim() });
+
+function AccountForm({ initial, presetCode, bcList, accounts, onSaved, onClose, onListChanged }) {
+  const [f, setF] = useState(() => {
+    if (initial) return { ...initial, opening_balance: initial.opening_balance ?? '', bc_code: initial.bc_code ?? '' };
+    const b = presetCode && bcList.find((x) => x.code === presetCode);
+    return b ? fromBc(b) : BLANK;
+  });
+  const formRef = useRef(null);
+  useEffect(() => { formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, []);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
@@ -257,9 +266,7 @@ function AccountForm({ initial, bcList, accounts, onSaved, onClose, onListChange
 
   function pickBc(code, list = bcList) {
     const b = list.find((x) => x.code === code);
-    setF((s) => (!b ? { ...s, bc_code: '' } : initial ? { ...s, bc_code: code } : {
-      ...s, bc_code: code, bank: shortBank(b), account_no: b.account_no ?? s.account_no, name: `${shortBank(b)} ${suffix(b)}`.trim(),
-    }));
+    setF((s) => (!b ? { ...s, bc_code: '' } : initial ? { ...s, bc_code: code } : fromBc(b, s)));
   }
   async function save(e) {
     e.preventDefault(); setError('');
@@ -275,7 +282,7 @@ function AccountForm({ initial, bcList, accounts, onSaved, onClose, onListChange
   }
   return (
     <>
-      <form className="action" onSubmit={save}>
+      <form className="action account-form" onSubmit={save} ref={formRef}>
         <h2>{initial ? `Edit ${initial.name}` : 'Add a bank account'}</h2>
         <label className="field"><span className="flabel">Business Central bank account</span>
           <select required value={f.bc_code} onChange={(e) => pickBc(e.target.value)}>
@@ -308,22 +315,24 @@ function AccountForm({ initial, bcList, accounts, onSaved, onClose, onListChange
   );
 }
 
-function BcList({ bcList, accounts, canEdit, onChanged }) {
+function BcList({ bcList, accounts, canEdit, onChanged, onAdd }) {
   const [editing, setEditing] = useState(null);
   const inApp = new Map(accounts.filter((a) => a.bc_code).map((a) => [a.bc_code, a.name]));
   return (
     <details className="facts">
       <summary>Business Central bank account list ({bcList.length})</summary>
-      <p className="hint">Every bank account in Business Central. {canEdit ? 'Pick from it when adding an account; add to it when BC gets a new account.' : 'A Finance Admin keeps it up to date.'}</p>
+      <p className="hint">Every bank account in Business Central. {canEdit ? 'Use "Add to the app" on an account to start tracking its statements; add to the list when BC gets a new account.' : 'A Finance Admin keeps it up to date.'}</p>
       {canEdit && <p><button className="btn small" onClick={() => setEditing({})}>Add to the list</button></p>}
       {editing && <BcListForm initial={editing.code ? editing : null} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await onChanged(); }} />}
       <div className="table-wrap flat">
-        <table className="table">
+        <table className="table bc-list">
           <thead><tr><th>BC code</th><th>BC name</th><th>Bank</th><th>Account no.</th><th>Currency</th><th>In the app</th>{canEdit && <th />}</tr></thead>
           <tbody>{bcList.map((b) => (
             <tr key={b.code}>
               <td>{b.code}</td><td>{b.name}</td><td>{b.bank ?? ''}</td><td>{b.account_no ?? ''}</td><td>{b.currency ?? ''}</td>
-              <td>{inApp.get(b.code) ?? <span className="muted">—</span>}</td>
+              <td>{inApp.get(b.code) ?? (canEdit
+                ? <button className="btn small" onClick={() => onAdd(b.code)} aria-label={`Add ${b.code} to the app`}>Add to the app</button>
+                : <span className="muted">—</span>)}</td>
               {canEdit && <td><button className="link" onClick={() => setEditing(b)}>Correct</button></td>}
             </tr>
           ))}</tbody>
@@ -391,7 +400,7 @@ export default function Bank() {
   const [accounts, setAccounts] = useState(null);
   const [bcList, setBcList] = useState([]);
   const [uploads, setUploads] = useState([]);
-  const [editing, setEditing] = useState(null); // null | 'new' | account
+  const [editing, setEditing] = useState(null); // null | 'new' | { add: BC code } | account
   const [mapping, setMapping] = useState(null);
 
   const load = useCallback(async () => {
@@ -426,7 +435,8 @@ export default function Bank() {
         <div className="page-head"><h2>Accounts</h2>
           {isAdmin && <button className="btn" onClick={() => { setEditing('new'); setMapping(null); }}>Add account</button>}</div>
         {!isAdmin && <p className="hint">A Finance Admin adds and changes bank accounts.</p>}
-        {editing && <AccountForm initial={editing === 'new' ? null : editing} bcList={bcList} accounts={accounts} onListChanged={load}
+        {editing && <AccountForm key={editing === 'new' ? 'new' : editing.add ? `add-${editing.add}` : `edit-${editing.id}`}
+          initial={editing === 'new' || editing.add ? null : editing} presetCode={editing.add} bcList={bcList} accounts={accounts} onListChanged={load}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
         {mapping && <ColumnSetup account={mapping} onClose={() => setMapping(null)} onSaved={() => { setMapping(null); load(); }} />}
         {accounts.length === 0 ? <p className="muted">No accounts yet. Add each account that receives customer money.</p> : (
@@ -455,7 +465,7 @@ export default function Bank() {
         )}
       </div>
 
-      <BcList bcList={bcList} accounts={accounts} canEdit={isAdmin} onChanged={load} />
+      <BcList bcList={bcList} accounts={accounts} canEdit={isAdmin} onChanged={load} onAdd={(code) => { setEditing({ add: code }); setMapping(null); }} />
 
       <Statements accounts={accounts} />
     </section>
