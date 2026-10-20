@@ -852,3 +852,8 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 }
 .account-form { scroll-margin-top: 80px; }
 .bc-list .btn { white-space: nowrap; }
+.ms-pdf { display: flex; align-items: center; gap: 1rem; margin-top: 0.75rem; padding: 0.6rem 0.8rem; border: 1px solid var(--rule); border-left: 4px solid var(--navy); border-radius: var(--radius); background: var(--surface); }
+.ms-pdf-name { font-weight: 700; overflow-wrap: anywhere; margin-right: auto; }
+.ms-password { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
+.ms-password p { margin: 0; }
+.ms-password .field { min-width: min(18rem, 100%); }

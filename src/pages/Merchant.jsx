@@ -6,6 +6,7 @@ import { lkr, ref, fmtDate, fmtDateTime, personName, todayISO } from '../lib/for
 import { STATUS } from '../lib/workflow';
 import { checkStatement, COMMISSION_RATE } from '../lib/merchant';
 import { compressImage } from '../lib/image';
+import { isPdf } from '../lib/merchantPdf';
 import SignedImage from '../components/SignedImage';
 import BankLinePicker from '../components/BankLinePicker';
 import { cardNo } from '../components/DraftPicker';
@@ -342,9 +343,11 @@ export function MerchantStatement() {
       </div>
 
       <div className="facts">
-        <h2>Screenshots</h2>
+        <h2>{s.images.some((p) => /\.pdf$/i.test(p)) ? 'Statement PDF' : 'Screenshots'}</h2>
         {s.images.length === 0 ? <p className="muted">None attached.</p> : (
-          <div className="ms-shots">{s.images.map((p, i) => <div key={p}><span className="muted small">Screenshot {i + 1}</span><SignedImage path={p} alt={`Screenshot ${i + 1}`} /></div>)}</div>
+          <div className="ms-shots">{s.images.map((p, i) => (/\.pdf$/i.test(p)
+            ? <div key={p}><SignedImage path={p} alt="the statement" /><p className="hint">It opens with the HNB statement password.</p></div>
+            : <div key={p}><span className="muted small">Screenshot {i + 1}</span><SignedImage path={p} alt={`Screenshot ${i + 1}`} /></div>))}</div>
         )}
       </div>
       {role === 'finance' && (
@@ -409,6 +412,10 @@ function gridToStatement(g, rate, held = {}, start = '') {
 export function MerchantAdd() {
   const nav = useNavigate();
   const [files, setFiles] = useState([]);   // [{ k, file, url }]
+  const [pdf, setPdf] = useState(null);     // { k, file } — a statement PDF instead of screenshots
+  const [pw, setPw] = useState({ ask: false, wrong: false, value: '', remember: true });
+  const [pages, setPages] = useState([]);   // the PDF's pages drawn, to check against
+  const [footerFromPdf, setFooterFromPdf] = useState(false);
   const [stage, setStage] = useState('pick');
   const [progress, setProgress] = useState({ text: '', f: 0 });
   const [grid, setGrid] = useState(null);
@@ -439,8 +446,15 @@ export function MerchantAdd() {
   }, []);
 
   const addFiles = useCallback((list) => {
-    const imgs = [...list].filter((f) => f.type.startsWith('image/'));
+    const all = [...list];
+    const doc = all.find(isPdf);
+    if (doc) {   // one PDF is the whole statement: it replaces any screenshots
+      setPdf({ k: key(), file: doc }); setFiles([]); setPw((x) => ({ ...x, ask: false, wrong: false })); setError('');
+      return;
+    }
+    const imgs = all.filter((f) => f.type.startsWith('image/'));
     if (!imgs.length) return;
+    setPdf(null);
     setFiles((fs) => [...fs, ...imgs.map((file) => ({ k: key(), file, url: URL.createObjectURL(file) }))]);
   }, []);
   useEffect(() => {
@@ -454,6 +468,7 @@ export function MerchantAdd() {
   const rate = Number(settings?.rate ?? COMMISSION_RATE);
 
   async function read() {
+    if (pdf) return readPdf();
     setStage('reading'); setError(''); setProgress({ text: 'Starting…', f: 0 });
     try {
       const { readStatementImages } = await import('../lib/merchantOcr');
@@ -462,6 +477,33 @@ export function MerchantAdd() {
       setStage('review');
     } catch (e) {
       setError(`The screenshots couldn't be read (${e.message}). You can type the statement in instead.`);
+      setStage('pick');
+    }
+  }
+  async function readPdf() {
+    setStage('reading'); setError(''); setProgress({ text: 'Opening the PDF…', f: 0 });
+    const typed = pw.ask && pw.value.trim();
+    try {
+      const { readStatementPdf, PdfPasswordError } = await import('../lib/merchantPdf');
+      let r;
+      try {
+        r = await readStatementPdf(pdf.file, typed || settings?.pdf_password || '', (text, f) => setProgress({ text, f }));
+      } catch (e) {
+        if (e instanceof PdfPasswordError) {
+          setPw((x) => ({ ...x, ask: true, wrong: Boolean(typed) }));
+          setStage('pick');
+          return;
+        }
+        throw e;
+      }
+      if (typed && pw.remember && typed !== settings?.pdf_password) {
+        rpc('cc_merchant_set_pdf_password', { p_password: typed }).then(() => setSettings((x) => ({ ...x, pdf_password: typed }))).catch(() => {});
+      }
+      setGrid(toGrid(r.statement)); setUnread(r.statement.unread); setDropped(r.dropped); setTexts(r.texts); setPages(r.pages);
+      if (r.footer) { setFooterCount(String(r.footer.count)); setFooterNet(r.footer.net.toFixed(2)); setFooterFromPdf(true); } else setFooterFromPdf(false);
+      setStage('review');
+    } catch (e) {
+      setError(`The PDF couldn't be read (${e.message}). You can add screenshots or type the statement in instead.`);
       setStage('pick');
     }
   }
@@ -499,6 +541,10 @@ export function MerchantAdd() {
     setBusy(true); setError('');
     try {
       const images = [];
+      if (pdf) {   // the PDF itself is kept, as received (still password protected)
+        if (!uploaded.current[pdf.k]) uploaded.current[pdf.k] = await uploadMine(pdf.file, 'merchant', 'pdf', 'application/pdf');
+        images.push(uploaded.current[pdf.k]);
+      }
       for (const f of files) {
         if (!uploaded.current[f.k]) uploaded.current[f.k] = await uploadMine(await compressImage(f.file, 2400, 0.92), 'merchant', 'jpg', 'image/jpeg');
         images.push(uploaded.current[f.k]);
@@ -518,13 +564,31 @@ export function MerchantAdd() {
     <section className="narrow">
       <Link to="/merchant" className="back">Merchant statements</Link>
       <div className="page-head"><h1>Add a merchant statement</h1></div>
-      <p className="lede">Add the HNB merchant statement screenshots in order, top to bottom. Overlapping screenshots are fine: rows that show twice are counted once.
-        The app reads them on this computer, then you check every line against the screenshots before saving.</p>
+      <p className="lede">Add the HNB merchant statement PDF, as HNB sent it: the app opens it with the statement password and reads every line exactly.
+        Screenshots still work (in order, top to bottom; overlaps are counted once). Either way you check every line before saving.</p>
       <div className="facts">
         <div className="row">
+          <label className="btn file-btn primary">Choose the PDF<input type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} /></label>
           <label className="btn file-btn">Choose screenshots<input type="file" accept="image/*" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} /></label>
-          <span className="hint">or paste them here (Ctrl+V)</span>
+          <span className="hint">or paste screenshots here (Ctrl+V)</span>
         </div>
+        {pdf && (
+          <div className="ms-pdf">
+            <span className="ms-pdf-name">{pdf.file.name}</span>
+            <button className="link danger-text" disabled={stage === 'reading'} onClick={() => { setPdf(null); setPw((x) => ({ ...x, ask: false, wrong: false, value: '' })); }}>Remove</button>
+          </div>
+        )}
+        {pdf && pw.ask && stage !== 'reading' && (
+          <div className="ms-password">
+            <p className={pw.wrong ? 'error' : 'warn-text'}>{pw.wrong ? "That password doesn't open this PDF. Check it and try again." : settings?.pdf_password ? "The saved statement password doesn't open this PDF. Enter its password." : 'This PDF is password protected. Enter its password.'}</p>
+            <div className="row">
+              <label className="field"><span className="flabel">PDF password</span>
+                <input type="password" autoComplete="off" value={pw.value} onChange={(e) => setPw((x) => ({ ...x, value: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && pw.value.trim()) read(); }} /></label>
+            </div>
+            <label className="check"><input type="checkbox" checked={pw.remember} onChange={(e) => setPw((x) => ({ ...x, remember: e.target.checked }))} /> Use this password for statements from now on</label>
+          </div>
+        )}
         {files.length > 0 && (
           <ol className="ms-files">
             {files.map((f, i) => (
@@ -547,7 +611,7 @@ export function MerchantAdd() {
           </div>
         ) : (
           <div className="row">
-            <button className="btn primary" disabled={!files.length} onClick={read}>Read the screenshots</button>
+            <button className="btn primary" disabled={!files.length && !pdf} onClick={read}>{pdf ? 'Read the PDF' : 'Read the screenshots'}</button>
             <button className="btn ghost" onClick={typeIn}>Type it in instead</button>
           </div>
         )}
@@ -569,7 +633,7 @@ export function MerchantAdd() {
       <section className="ms-main">
         <Link to="/merchant" className="back">Merchant statements</Link>
         <div className="page-head"><h1>Check the statement</h1></div>
-        <p className="lede">Compare every line with the screenshots. Each sale must have commission = {Math.round(rate * 100)}% of the amount and net = amount less commission,
+        <p className="lede">Compare every line with the {pdf ? 'statement' : 'screenshots'}. Each sale must have commission = {Math.round(rate * 100)}% of the amount and net = amount less commission,
           and each batch must add up to its printed total. Changing an amount fills in the commission and net.</p>
         {dropped > 0 && <p className="hint">{plural(dropped, 'row')} showed in two screenshots and {dropped === 1 ? 'was' : 'were'} counted once. Check the join between screenshots.</p>}
         {unread.length > 0 && (
@@ -654,7 +718,9 @@ export function MerchantAdd() {
             <dt>Commission</dt><dd>LKR {lkr(st.commission)}</dd>
             <dt>Net</dt><dd>LKR {lkr(st.net)}</dd>
           </dl>
-          <p className="hint">Type the totals printed at the bottom of the statement. They must equal what's above, so a missed or misread line can't slip through.</p>
+          <p className="hint">{footerFromPdf
+            ? "Read from the totals box at the bottom of the PDF. They must equal what's above, so a missed line can't slip through."
+            : "Type the totals printed at the bottom of the statement. They must equal what's above, so a missed or misread line can't slip through."}</p>
           <div className="grid2">
             <label className="field"><span className="flabel">Number of sales on the statement</span>
               <input inputMode="numeric" value={footerCount} onChange={(e) => setFooterCount(e.target.value.replace(/\D/g, ''))} /></label>
@@ -684,11 +750,15 @@ export function MerchantAdd() {
         </div>
         {texts.length > 0 && (
           <details className="facts"><summary>What the reader saw</summary>
-            {texts.map((t, i) => <pre key={i} className="ms-raw">{`Screenshot ${i + 1}\n${t}`}</pre>)}
+            {texts.map((t, i) => <pre key={i} className="ms-raw">{`${pdf ? 'Page' : 'Screenshot'} ${i + 1}\n${t}`}</pre>)}
           </details>
         )}
       </section>
-      <aside className="ms-shots-aside" aria-label="Screenshots">
+      <aside className="ms-shots-aside" aria-label={pdf ? 'Statement pages' : 'Screenshots'}>
+        {pdf && pages.map((u, i) => (
+          <figure key={u}><figcaption className="muted small">Page {i + 1}</figcaption>
+            <a href={u} target="_blank" rel="noreferrer"><img src={u} alt={`Page ${i + 1}`} /></a></figure>
+        ))}
         {files.map((f, i) => (
           <figure key={f.k}><figcaption className="muted small">Screenshot {i + 1}</figcaption>
             <a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={`Screenshot ${i + 1}`} /></a></figure>
