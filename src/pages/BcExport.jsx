@@ -5,7 +5,7 @@ import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
 import { NumberCheck, NumberSeries, Renumber } from '../components/DocNumbers';
-import ChequeSplit from '../components/ChequeSplit';
+import ChequeLines from '../components/ChequeLines';
 
 const ISSUE = {
   needs_split: { text: "Waiting for Sales' cheque split", block: true },
@@ -29,7 +29,7 @@ function ChequeMap({ depositId, onDone, admin }) {
   const [error, setError] = useState('');
   useEffect(() => {
     (async () => {
-      const l = await db.from('statement_lines').select('id, txn_date, narration, cheque_no, credit').eq('deposit_id', depositId).order('id');
+      const l = await db.from('statement_lines').select('id, txn_date, narration, reference, cheque_no, credit').eq('deposit_id', depositId).order('id');
       const c = await db.from('collections').select('id, customer_name, cheques!cheques_collection_id_fkey(id, cheque_no, amount, returned_at)').eq('deposit_id', depositId).neq('status', 'cancelled');
       setLines(l.data ?? []); setCheques((c.data ?? []).flatMap((x) => x.cheques.filter((q) => !q.returned_at).map((q) => ({ ...q, customer: x.customer_name }))));
     })();
@@ -48,10 +48,11 @@ function ChequeMap({ depositId, onDone, admin }) {
       <p className="hint">The app couldn't tell from the cheque numbers and amounts. Choose the bank line for each cheque on this slip.</p>
       {lines.length > cheques.length && (admin
         ? (split
-          ? <ChequeSplit cheques={cheques} lines={lines} onSplit={onDone} onCancel={() => setSplit(false)} />
+          ? <ChequeLines deposit={{ id: depositId }} cheques={cheques} lines={lines} matched onDone={onDone} onCancel={() => setSplit(false)} />
           : <p className="hint">The bank shows {lines.length} lines for {cheques.length} recorded cheque{cheques.length === 1 ? '' : 's'}?{' '}
-              <button type="button" className="link" onClick={() => setSplit(true)}>Split a recorded cheque to match the bank</button></p>)
-        : <p className="warn-text">The bank shows {lines.length} lines for {cheques.length} recorded cheque{cheques.length === 1 ? '' : 's'}: if one cheque is really two, a Finance Admin can split it to match the bank.</p>)}
+              <button type="button" className="link" onClick={() => setSplit(true)}>Match cheque by cheque (split a cheque the bank shows as several)</button></p>)
+        : <p className="warn-text">The bank shows {lines.length} lines for {cheques.length} recorded cheque{cheques.length === 1 ? '' : 's'}: if a cheque is really several, a Finance Admin can split it to match the bank.</p>)}
+      {split ? null : (<>
       {cheques.map((q) => (
         <div className="row-2" key={q.id}>
           <span>{q.customer}: cheque {q.cheque_no}, LKR {lkr(q.amount)}</span>
@@ -63,6 +64,7 @@ function ChequeMap({ depositId, onDone, admin }) {
       ))}
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={cheques.some((q) => !pick[q.id])} onClick={save}>Save</button>
+      </>)}
     </div>
   );
 }

@@ -857,7 +857,18 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .ms-password { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
 .ms-password p { margin: 0; }
 .ms-password .field { min-width: min(18rem, 100%); }
-.cheque-split { display: grid; gap: 0.6rem; margin-top: 0.5rem; }
-.cheque-split .subhead { margin: 0; }
-.split-parts input { min-width: 7rem; }
-.split-box { border-left: 4px solid var(--orange); }
+/* Finance Admin: match a slip cheque by cheque */
+.cheque-lines { display: grid; gap: 0.75rem; margin-top: 0.5rem; }
+.cheque-lines .subhead, .cheque-lines > p { margin: 0; }
+.cl-cheque { display: grid; gap: 0.5rem; padding: 0.75rem 0.9rem; border: 1px solid var(--rule); border-left: 4px solid var(--orange); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.cl-cheque.done { border-left-color: var(--green); }
+.cl-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; }
+.cl-lines { list-style: none; margin: 0; padding: 0; border: 1px solid #E4EAE5; border-radius: var(--radius); background: rgba(255, 255, 255, 0.96); }
+.cl-lines li { display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: start; padding: 0.55rem 0.8rem; }
+.cl-lines li + li { border-top: 1px solid #E4EAE5; }
+.cl-lines .link { font-size: 1rem; line-height: 1.2; }
+.cl-no { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; font-size: 0.875rem; color: var(--muted); }
+.cl-no > span { white-space: nowrap; }
+.cl-no input { width: 9rem; max-width: 100%; padding: 0.3rem 0.5rem; }
+.cl-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; }
+.cl-foot .link { margin-left: auto; }

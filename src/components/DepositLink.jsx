@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { db, rpc } from '../lib/supabase';
 import { lkr } from '../lib/format';
 import BankLinePicker from './BankLinePicker';
 import StatementView from './StatementView';
-import ChequeSplit from './ChequeSplit';
+import ChequeLines, { suggestGroups } from './ChequeLines';
 import { useAuth } from '../lib/auth';
 
 const digits = (s) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
@@ -18,6 +18,13 @@ function canMake(amount, cheques) {
   }
   return false;
 }
+// Can the slip be matched the usual way: one line for the whole slip, or a line of each cheque's amount?
+function usualWorks(cheques, lines, total) {
+  const c = (n) => Math.round(Number(n) * 100);
+  if (lines.some((l) => c(l.credit) === c(total))) return true;
+  const used = new Set();
+  return cheques.every((q) => { const l = lines.find((x) => !used.has(x.id) && c(x.credit) === c(q.amount)); if (l) used.add(l.id); return Boolean(l); });
+}
 
 // Finance: match a deposit slip to its bank credit line(s). Banks often list each
 // cheque as its own line, so several lines may make up one slip.
@@ -31,6 +38,12 @@ export default function DepositLink({ deposit, onDone }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Finance Admin: every unlinked money-in line on the account, to match cheque by cheque
+  const [bankLines, setBankLines] = useState(null);
+  const [byCheque, setByCheque] = useState(false);
+  const [prefer, setPrefer] = useState([]);
+  const [shown, setShown] = useState([]);
+  const auto = useRef(false);
 
   const loadCheques = useCallback(() => db.from('collections').select('id, customer_name, cheques!cheques_collection_id_fkey(id, cheque_no, amount, returned_at)')
     .eq('deposit_id', deposit.id).neq('status', 'cancelled')
@@ -39,6 +52,18 @@ export default function DepositLink({ deposit, onDone }) {
       setCheques((data ?? []).flatMap((c) => c.cheques.filter((q) => !q.returned_at).map((q) => ({ ...q, customer: c.customer_name }))));
     }), [deposit.id]);
   useEffect(() => { loadCheques(); }, [loadCheques]);
+  useEffect(() => {
+    if (!admin) return;
+    db.from('bank_credits').select('*').eq('account_id', deposit.account_id).is('link_kind', null)
+      .not('narration', 'ilike', '%MERCHANT SLIPS%').order('txn_date', { ascending: false }).limit(500)
+      .then(({ data, error: e }) => { if (e) setError(`Couldn't load the bank lines: ${e.message}`); setBankLines(data ?? []); });
+  }, [admin, deposit.account_id]);
+  // when the usual way can't match the slip but the bank lines add up cheque by cheque, open that straight away
+  useEffect(() => {
+    if (!admin || auto.current || !cheques?.length || !bankLines) return;
+    auto.current = true;
+    if (!usualWorks(cheques, bankLines, deposit.slip_total) && suggestGroups(cheques, bankLines, { depositDate: deposit.deposit_date }).complete) setByCheque(true);
+  }, [admin, cheques, bankLines, deposit.slip_total, deposit.deposit_date]);
 
   // Pre-select: a line carrying each cheque's number, else one with its exact amount,
   // else a single line equal to the whole slip.
@@ -81,6 +106,17 @@ export default function DepositLink({ deposit, onDone }) {
     </div>
   );
 
+  if (admin && byCheque) return (
+    <div className="action">
+      <h2>Match slip D-{deposit.id} to the bank</h2>
+      {!cheques || !bankLines ? <p className="muted">Loading…</p> : (
+        <ChequeLines key={prefer.join()} deposit={deposit} cheques={cheques} lines={bankLines} prefer={prefer} onLinesChange={setShown}
+          onDone={onDone} cancelLabel="Match the usual way instead" onCancel={() => { setByCheque(false); setPrefer([]); setShown([]); }} />
+      )}
+      <StatementView accountId={deposit.account_id} highlightIds={shown} focusDate={deposit.deposit_date} />
+    </div>
+  );
+
   return (
     <div className="action">
       <h2>Match slip D-{deposit.id} to the bank</h2>
@@ -94,6 +130,11 @@ export default function DepositLink({ deposit, onDone }) {
               {showAll ? 'Show exact amounts only' : 'Bank combined or split the cheques? Show all lines'}
             </button>
           </p>
+          {admin && (
+            <p className="hint">Finance Admin: the bank shows a cheque as several lines?{' '}
+              <button type="button" className="link" onClick={() => { setPrefer([]); setByCheque(true); }}>Match cheque by cheque</button>
+            </p>
+          )}
           <BankLinePicker key={showAll ? 'all' : 'exact'} multiple accountId={deposit.account_id}
             amounts={showAll ? null : [...new Set([Number(deposit.slip_total), ...cheques.map((q) => Number(q.amount))])]}
             value={picked.map((l) => l.id)} onChange={setPicked} suggest={suggest} />
@@ -108,10 +149,9 @@ export default function DepositLink({ deposit, onDone }) {
           Sales recorded them differently. Only a Finance Admin can match this slip (splitting the recorded cheque to match the bank).</p>
       )}
       {odd.length > 0 && admin && (
-        <div className="action split-box">
+        <div className="row">
           <p className="warn-text">The bank shows {odd.map((l) => `LKR ${lkr(l.credit)}`).join(' and ')}, which {odd.length === 1 ? "isn't" : "aren't"} one of the cheques recorded on this slip.</p>
-          <ChequeSplit key={picked.map((l) => l.id).join()} cheques={cheques} lines={picked} submitLabel="Split the cheque and match the slip"
-            onSplit={async () => { await loadCheques(); await run(() => rpc('cc_link_deposit', { p_deposit_id: deposit.id, p_line_ids: picked.map((l) => l.id) })); }} />
+          <button type="button" className="btn primary" disabled={!bankLines} onClick={() => { setPrefer(picked.map((l) => l.id)); setByCheque(true); }}>Match cheque by cheque with these lines</button>
         </div>
       )}
       {error && <p className="error">{error}</p>}
