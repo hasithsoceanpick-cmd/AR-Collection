@@ -5,6 +5,7 @@ import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
 import { NumberCheck, NumberSeries, Renumber } from '../components/DocNumbers';
+import ChequeSplit from '../components/ChequeSplit';
 
 const ISSUE = {
   needs_split: { text: "Waiting for Sales' cheque split", block: true },
@@ -20,7 +21,8 @@ const ISSUE = {
 };
 const today = () => new Date().toISOString().slice(0, 10);
 
-function ChequeMap({ depositId, onDone }) {
+function ChequeMap({ depositId, onDone, admin }) {
+  const [split, setSplit] = useState(false);
   const [lines, setLines] = useState(null);
   const [cheques, setCheques] = useState([]);
   const [pick, setPick] = useState({});
@@ -28,8 +30,8 @@ function ChequeMap({ depositId, onDone }) {
   useEffect(() => {
     (async () => {
       const l = await db.from('statement_lines').select('id, txn_date, narration, cheque_no, credit').eq('deposit_id', depositId).order('id');
-      const c = await db.from('collections').select('id, customer_name, cheques!cheques_collection_id_fkey(id, cheque_no, amount)').eq('deposit_id', depositId);
-      setLines(l.data ?? []); setCheques((c.data ?? []).flatMap((x) => x.cheques.map((q) => ({ ...q, customer: x.customer_name }))));
+      const c = await db.from('collections').select('id, customer_name, cheques!cheques_collection_id_fkey(id, cheque_no, amount, returned_at)').eq('deposit_id', depositId).neq('status', 'cancelled');
+      setLines(l.data ?? []); setCheques((c.data ?? []).flatMap((x) => x.cheques.filter((q) => !q.returned_at).map((q) => ({ ...q, customer: x.customer_name }))));
     })();
   }, [depositId]);
   if (!lines) return <p className="muted">Loading…</p>;
@@ -44,6 +46,12 @@ function ChequeMap({ depositId, onDone }) {
     <div className="action">
       <h2>Which bank line carries which cheque?</h2>
       <p className="hint">The app couldn't tell from the cheque numbers and amounts. Choose the bank line for each cheque on this slip.</p>
+      {lines.length > cheques.length && (admin
+        ? (split
+          ? <ChequeSplit cheques={cheques} lines={lines} onSplit={onDone} onCancel={() => setSplit(false)} />
+          : <p className="hint">The bank shows {lines.length} lines for {cheques.length} recorded cheque{cheques.length === 1 ? '' : 's'}?{' '}
+              <button type="button" className="link" onClick={() => setSplit(true)}>Split a recorded cheque to match the bank</button></p>)
+        : <p className="warn-text">The bank shows {lines.length} lines for {cheques.length} recorded cheque{cheques.length === 1 ? '' : 's'}: if one cheque is really two, a Finance Admin can split it to match the bank.</p>)}
       {cheques.map((q) => (
         <div className="row-2" key={q.id}>
           <span>{q.customer}: cheque {q.cheque_no}, LKR {lkr(q.amount)}</span>
@@ -60,7 +68,7 @@ function ChequeMap({ depositId, onDone }) {
 }
 
 export default function BcExport() {
-  const { role } = useAuth();
+  const { role, isAdmin } = useAuth();
   const [rows, setRows] = useState(null);
   const [nextNo, setNextNo] = useState('');
   const [sel, setSel] = useState(new Set());
@@ -226,7 +234,7 @@ export default function BcExport() {
         </>
       )}
       {role === 'finance' && <NumberSeries />}
-      {mapDeposit && <ChequeMap depositId={mapDeposit} onDone={() => { setMapDeposit(null); load(); }} />}
+      {mapDeposit && <ChequeMap depositId={mapDeposit} admin={isAdmin && role === 'finance'} onDone={() => { setMapDeposit(null); load(); }} />}
     </section>
   );
 }

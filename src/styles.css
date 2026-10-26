@@ -857,3 +857,7 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .ms-password { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
 .ms-password p { margin: 0; }
 .ms-password .field { min-width: min(18rem, 100%); }
+.cheque-split { display: grid; gap: 0.6rem; margin-top: 0.5rem; }
+.cheque-split .subhead { margin: 0; }
+.split-parts input { min-width: 7rem; }
+.split-box { border-left: 4px solid var(--orange); }
