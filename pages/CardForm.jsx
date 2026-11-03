@@ -7,6 +7,7 @@ import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
 import ReceiptInput, { keptItems, uploadReceiptItems, attachFiles } from '../components/ReceiptInput';
 import DraftPicker from '../components/DraftPicker';
+import { useInvoicesOfAmount, nearSale } from '../components/SaleInvoices';
 import { useAuth } from '../lib/auth';
 
 // A card payment taken on the HNB terminal: Sales records it against the invoices,
@@ -18,6 +19,9 @@ export default function CardForm() {
   const [params] = useSearchParams();
   const editId = Number(params.get('edit')) || null;     // a parked card payment
   const draftParam = Number(params.get('draft')) || null; // started from a sale on a merchant statement
+  const custParam = params.get('customer');               // …and one of the open invoices of its value
+  const invParam = params.get('invoice');
+  const [saleDate, setSaleDate] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [customer, setCustomer] = useState(null);
   const [docs, setDocs] = useState([]);
@@ -62,11 +66,22 @@ export default function CardForm() {
       if (!d) return;
       if (d.collection_id) { setError('That sale is already set off against a card payment.'); return; }
       setAmount(Number(d.amount).toFixed(2)); setAmountTouched(true);
-      setCardDate(d.txn_date); setLast4(d.card_last4 ?? '');
+      setCardDate(d.txn_date); setLast4(d.card_last4 ?? ''); setSaleDate(d.txn_date);
     });
   }, [draftParam]);
 
+  useEffect(() => {
+    if (!custParam || editId || customer || !customers.length) return;
+    const c = customers.find((x) => x.customer_no === custParam);
+    if (!c) return;
+    setCustomer(c);
+    if (invParam) setDocs([invParam]);
+  }, [custParam, invParam, customers]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const amountNum = Math.round((Number(String(amount).replace(/,/g, '')) || 0) * 100) / 100;
+  // started from a sale: the open invoices of exactly its value, to pick the customer and invoice in one go
+  const invoicesOf = useInvoicesOfAmount(draftParam && !customer && !editId && amountNum > 0 ? [amountNum] : []);
+  const matching = saleDate ? nearSale(invoicesOf(amountNum), saleDate) : [];
   const last4Clean = last4.replace(/\D/g, '');
   const mismatch = draft && draft.card_last4 && last4Clean.length === 4 && draft.card_last4 !== last4Clean;
 
@@ -102,6 +117,21 @@ export default function CardForm() {
         then its sale on the merchant statement. If finance hasn't added that statement yet, park it: you'll be told when a sale of this amount shows.</p>
 
       <form onSubmit={save} className="stack">
+        {draftParam && !customer && saleDate && (
+          <div className="field sale-match"><span className="flabel">Open invoices of LKR {lkr(amountNum)}, the value of this sale</span>
+            {matching.length === 0 ? <span className="hint">None in the app: pick the customer and invoices below.</span> : (
+              <ul className="plain">
+                {matching.map((i) => (
+                  <li key={`${i.customer_no}-${i.document_no}`}>
+                    <button type="button" className="btn small" onClick={() => { setCustomer({ customer_no: i.customer_no, name: i.customer_name }); setDocs([i.document_no]); }}>
+                      {i.document_no} · {i.customer_name}</button>
+                    <span className="muted small"> invoiced {fmtDate(i.posting_date)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <div className="field"><span className="flabel">Customer</span>
           <CustomerPicker customers={customers} selected={customer} onSelect={(c) => { setCustomer(c); setDocs([]); setInvoiceTotal(null); }} />
         </div>
@@ -139,7 +169,7 @@ export default function CardForm() {
         </label>
 
         <div className="field"><span className="flabel">The sale on the merchant statement</span>
-          <DraftPicker amount={amountNum} cardDate={cardDate} value={draft} include={null}
+          <DraftPicker amount={amountNum} cardDate={cardDate} value={draft} include={null} pick={draftParam}
             onChange={(d) => { setDraft(d); setMismatchOk(false); }} />
           {draftParam && !draft && <span className="hint">Pick the sale you came from to set this payment off against it.</span>}
         </div>

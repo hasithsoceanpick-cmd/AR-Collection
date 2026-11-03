@@ -6,9 +6,11 @@ import { lkr, ref, fmtDate, fmtDateTime, personName, todayISO } from '../lib/for
 import { STATUS } from '../lib/workflow';
 import { checkStatement, COMMISSION_RATE } from '../lib/merchant';
 import { compressImage } from '../lib/image';
+import { isPdf } from '../lib/merchantPdf';
 import SignedImage from '../components/SignedImage';
 import BankLinePicker from '../components/BankLinePicker';
 import { cardNo } from '../components/DraftPicker';
+import SaleInvoices, { useInvoicesOfAmount } from '../components/SaleInvoices';
 
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const dayGap = (a, b) => Math.abs((new Date(`${a}T00:00:00`) - new Date(`${b}T00:00:00`)) / 86400000);
@@ -37,6 +39,9 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
   const el = useRef(null);
   const exported = Boolean(b.doc_no);
   const fin = role === 'finance';
+  const showNet = role !== 'sales';   // Sales see each sale at what the customer paid (the invoice value), not net of HNB's commission
+  const openAmounts = useMemo(() => (exported ? [] : (drafts ?? []).filter((d) => !d.collection_id).map((d) => Number(d.amount))), [drafts, exported]);
+  const invoicesOf = useInvoicesOfAmount(role === 'sales' || fin ? openAmounts : []);
 
   const loadDrafts = useCallback(async () => {
     const { data, error: e } = await db.from('merchant_drafts')
@@ -70,6 +75,7 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
         {(role === 'sales' || fin) && <Link className="small" to={`/card?draft=${d.id}`}>{mine.length ? 'Another customer' : 'Record card payment'}</Link>}
         {fin && <button className="link small" onClick={() => setFix({ id: d.id, txn_date: d.txn_date, card_first6: d.card_first6 ?? '', card_last4: d.card_last4 ?? '' })}>Correct</button>}
         {!fin && role !== 'sales' && <span className="warn-text small">Not set off</span>}
+        {(role === 'sales' || fin) && !mine.length && <SaleInvoices draft={d} invoices={invoicesOf(d.amount)} />}
       </div>
     );
   }
@@ -81,15 +87,15 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
         <span className="mb-no">{b.hnbms_no}</span>
         <span className="mb-date">Batch {fmtDate(b.pres_date)}</span>
         <span className="mb-meta">{plural(Number(b.drafts), 'sale')} · {Number(b.drafts) - Number(b.drafts_open)} set off</span>
-        <span className="mb-amt">Net LKR {lkr(b.net)}</span>
+        <span className="mb-amt">LKR {lkr(b.gross)}{showNet && <span className="mb-net"> · net {lkr(b.net)}</span>}</span>
         <span className={`stamp tone-${st.tone}`}>{st.label}</span>
       </button>
       {open && (
         <div className="mb-body">
           <dl className="mb-facts">
-            <dt>Sales (gross)</dt><dd>LKR {lkr(b.gross)}</dd>
-            <dt>HNB commission</dt><dd>LKR {lkr(b.commission)}</dd>
-            <dt>Paid into Amana</dt><dd>{b.line_id ? <>LKR {lkr(b.bank_credit)} on {fmtDate(b.bank_date)}, ref {b.bank_ref}</> : <span className="warn-text">No Amana credit of LKR {lkr(b.net)} matched yet</span>}</dd>
+            <dt>Sales (what customers paid)</dt><dd>LKR {lkr(b.gross)}</dd>
+            {showNet && <><dt>HNB commission</dt><dd>LKR {lkr(b.commission)}</dd>
+            <dt>Paid into Amana</dt><dd>{b.line_id ? <>LKR {lkr(b.bank_credit)} on {fmtDate(b.bank_date)}, ref {b.bank_ref}</> : <span className="warn-text">No Amana credit of LKR {lkr(b.net)} matched yet</span>}</dd></>}
             <dt>Business Central</dt><dd>{b.doc_no ? <>{b.doc_no}: {b.post_status === 'posted' ? 'posted' : b.post_status === 'posted_diff' ? 'posted with differences (see BC check)' : `exported ${b.export_count}×, not confirmed yet`}</> : <span className="muted">Not exported</span>}</dd>
             <dt>On statement{(b.statements ?? []).length === 1 ? '' : 's'}</dt><dd>{(b.statements ?? []).map((s, i) => <span key={s}>{i > 0 && ', '}<Link to={`/merchant/s/${s}`}>No. {s}</Link></span>)}</dd>
           </dl>
@@ -97,17 +103,17 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
           {drafts === null ? <p className="muted">Loading the sales…</p> : (
             <div className="table-wrap flat">
               <table className="table">
-                <thead><tr><th>Sale date</th><th>Card</th><th className="num">Amount</th><th className="num hide-sm">Commission</th><th className="num hide-sm">Net</th><th>Set off against</th></tr></thead>
+                <thead><tr><th>Sale date</th><th>Card</th><th className="num">{showNet ? 'Amount' : 'Sale value'}</th>{showNet && <><th className="num hide-sm">Commission</th><th className="num hide-sm">Net</th></>}<th>Set off against</th></tr></thead>
                 <tbody>
                   {drafts.map((d) => (
                     <Fragment key={d.id}>
                       <tr className={!d.collection_id && !exported ? 'row-open' : ''}>
                         <td>{fmtDate(d.txn_date)}</td><td className="mono">{cardNo(d.card_first6, d.card_last4)}</td>
-                        <td className="num">{lkr(d.amount)}</td><td className="num hide-sm">{lkr(d.commission)}</td><td className="num hide-sm">{lkr(d.net)}</td>
+                        <td className="num">{lkr(d.amount)}</td>{showNet && <><td className="num hide-sm">{lkr(d.commission)}</td><td className="num hide-sm">{lkr(d.net)}</td></>}
                         <td>{setOff(d)}</td>
                       </tr>
                       {fix?.id === d.id && (
-                        <tr className="sub-row"><td colSpan={6}>
+                        <tr className="sub-row"><td colSpan={showNet ? 6 : 4}>
                           <div className="row">
                             <label className="inline-field">Sale date <input type="date" value={fix.txn_date} max={b.pres_date} onChange={(e) => setFix({ ...fix, txn_date: e.target.value })} /></label>
                             <label className="inline-field">Card first 6 <input inputMode="numeric" maxLength={6} value={fix.card_first6} onChange={(e) => setFix({ ...fix, card_first6: e.target.value })} /></label>
@@ -121,8 +127,8 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
                     </Fragment>
                   ))}
                 </tbody>
-                <tfoot><tr><td colSpan={2}>Batch total{b.printed_total != null ? ` (statement prints ${lkr(b.printed_total)})` : ''}</td>
-                  <td className="num">{lkr(b.gross)}</td><td className="num hide-sm">{lkr(b.commission)}</td><td className="num hide-sm">{lkr(b.net)}</td><td /></tr></tfoot>
+                <tfoot><tr><td colSpan={2}>Batch total{showNet && b.printed_total != null ? ` (statement prints ${lkr(b.printed_total)} net)` : ''}</td>
+                  <td className="num">{lkr(b.gross)}</td>{showNet && <><td className="num hide-sm">{lkr(b.commission)}</td><td className="num hide-sm">{lkr(b.net)}</td></>}<td /></tr></tfoot>
               </table>
             </div>
           )}
@@ -201,11 +207,12 @@ export function MerchantPage() {
     if (!nos.length) return <span className="muted">nothing taken over</span>;
     return `${nos[0].hnbms_no}${nos.length > 1 ? ` to ${nos[nos.length - 1].hnbms_no}` : ''} (${fmtDate(nos[0].pres_date)}${nos.length > 1 ? ` – ${fmtDate(nos[nos.length - 1].pres_date)}` : ''})`;
   };
+  const gross = (s) => (s.merchant_statement_batches ?? []).reduce((a, x) => a + Number(byId[x.batch_id]?.gross ?? 0), 0);
   const tabs = [
     { key: 'open', label: 'To finish', n: unfinished.length },
     { key: 'all', label: 'All batches', n: batches.length },
     { key: 'statements', label: 'Statements', n: stmts.length },
-    { key: 'amana', label: 'Amana credits without a batch', n: waiting.length },
+    ...(role !== 'sales' ? [{ key: 'amana', label: 'Amana credits without a batch', n: waiting.length }] : []),
   ];
   const list = active === 'open' ? unfinished : batches;
 
@@ -218,14 +225,19 @@ export function MerchantPage() {
           {(role === 'sales' || role === 'finance') && <Link className="btn" to="/card">Record card payment</Link>}
         </div>
       </div>
-      <p className="lede">HNB pays card sales in batches: each batch (one processing date) gets an HNBMS number, and its net after the 3% commission arrives in Amana.
-        Sales set each sale off against the card payment it belongs to; when every sale in a batch is set off, reviewed and its Amana credit matched, the batch goes to BC as one BAKRC document.</p>
+      {role === 'sales' ? (
+        <p className="lede">Every card sale on HNB's statements, at what the customer paid (the invoice value). Set each sale off against its card payment;
+          for a sale nobody has recorded yet, the open invoices of exactly that value are shown under it.</p>
+      ) : (
+        <p className="lede">HNB pays card sales in batches: each batch (one processing date) gets an HNBMS number, and its net after the 3% commission arrives in Amana.
+          Sales set each sale off against the card payment it belongs to; when every sale in a batch is set off, reviewed and its Amana credit matched, the batch goes to BC as one BAKRC document.</p>
+      )}
       {error && <p className="error">{error}</p>}
 
       <div className="kpis">
         <div><span>{toSetOff}</span>sales not set off yet<small>across {plural(batches.filter((b) => Number(b.drafts_open) > 0 && !b.doc_no).length, 'batch')}</small></div>
         <div><span>{withFinance}</span>card payments with finance<small>set off, waiting for review</small></div>
-        <div><span>{waiting.length}</span>Amana credits without a batch<small>LKR {lkr(waiting.reduce((a, l) => a + Number(l.credit), 0))}</small></div>
+        {role !== 'sales' && <div><span>{waiting.length}</span>Amana credits without a batch<small>LKR {lkr(waiting.reduce((a, l) => a + Number(l.credit), 0))}</small></div>}
         {role === 'sales' && <div><span>{parked.length}</span>your parked card payments<small>waiting for their statement</small></div>}
       </div>
 
@@ -244,12 +256,12 @@ export function MerchantPage() {
         stmts.length === 0 ? <div className="empty"><p>No statements added yet.</p></div> : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>No.</th><th>As at</th><th>Batches</th><th className="num">Sales</th><th className="num">Net LKR</th><th>Added</th></tr></thead>
+              <thead><tr><th>No.</th><th>As at</th><th>Batches</th><th className="num">Sales</th><th className="num">Sale value LKR</th>{role !== 'sales' && <th className="num">Net LKR</th>}<th>Added</th></tr></thead>
               <tbody>{stmts.map((s) => (
                 <tr key={s.id}>
                   <td><Link to={`/merchant/s/${s.id}`}><strong>No. {s.id}</strong></Link></td>
                   <td>{fmtDate(s.as_at)}</td><td>{range(s)}</td>
-                  <td className="num">{s.drafts_in}</td><td className="num">{lkr(s.net_in)}</td>
+                  <td className="num">{s.drafts_in}</td><td className="num">{lkr(gross(s))}</td>{role !== 'sales' && <td className="num">{lkr(s.net_in)}</td>}
                   <td>{fmtDateTime(s.created_at)}<div className="muted small">{personName(s.creator)}</div></td>
                 </tr>
               ))}</tbody>
@@ -320,7 +332,9 @@ export function MerchantStatement() {
     <section className="wide">
       <Link to="/merchant" className="back">Merchant statements</Link>
       <div className="page-head"><h1>Merchant statement No. {s.id}</h1></div>
-      <p className="lede">As at {fmtDate(s.as_at)} · {plural(s.drafts_in, 'sale')}, net LKR {lkr(s.net_in)} · added {fmtDateTime(s.created_at)} by {personName(s.creator)}</p>
+      <p className="lede">As at {fmtDate(s.as_at)} · {plural(s.drafts_in, 'sale')}, {role === 'sales'
+        ? `LKR ${lkr(batches.reduce((a, x) => a + Number(x.gross ?? 0), 0))} paid by customers`
+        : `net LKR ${lkr(s.net_in)}`} · added {fmtDateTime(s.created_at)} by {personName(s.creator)}</p>
       {s.note && <p className="quote">{s.note}</p>}
       {saved && (
         <div className="facts ok-box">
@@ -342,9 +356,11 @@ export function MerchantStatement() {
       </div>
 
       <div className="facts">
-        <h2>Screenshots</h2>
+        <h2>{s.images.some((p) => /\.pdf$/i.test(p)) ? 'Statement PDF' : 'Screenshots'}</h2>
         {s.images.length === 0 ? <p className="muted">None attached.</p> : (
-          <div className="ms-shots">{s.images.map((p, i) => <div key={p}><span className="muted small">Screenshot {i + 1}</span><SignedImage path={p} alt={`Screenshot ${i + 1}`} /></div>)}</div>
+          <div className="ms-shots">{s.images.map((p, i) => (/\.pdf$/i.test(p)
+            ? <div key={p}><SignedImage path={p} alt="the statement" /><p className="hint">It opens with the HNB statement password.</p></div>
+            : <div key={p}><span className="muted small">Screenshot {i + 1}</span><SignedImage path={p} alt={`Screenshot ${i + 1}`} /></div>))}</div>
         )}
       </div>
       {role === 'finance' && (
@@ -409,6 +425,10 @@ function gridToStatement(g, rate, held = {}, start = '') {
 export function MerchantAdd() {
   const nav = useNavigate();
   const [files, setFiles] = useState([]);   // [{ k, file, url }]
+  const [pdf, setPdf] = useState(null);     // { k, file } — a statement PDF instead of screenshots
+  const [pw, setPw] = useState({ ask: false, wrong: false, value: '', remember: true });
+  const [pages, setPages] = useState([]);   // the PDF's pages drawn, to check against
+  const [footerFromPdf, setFooterFromPdf] = useState(false);
   const [stage, setStage] = useState('pick');
   const [progress, setProgress] = useState({ text: '', f: 0 });
   const [grid, setGrid] = useState(null);
@@ -439,8 +459,15 @@ export function MerchantAdd() {
   }, []);
 
   const addFiles = useCallback((list) => {
-    const imgs = [...list].filter((f) => f.type.startsWith('image/'));
+    const all = [...list];
+    const doc = all.find(isPdf);
+    if (doc) {   // one PDF is the whole statement: it replaces any screenshots
+      setPdf({ k: key(), file: doc }); setFiles([]); setPw((x) => ({ ...x, ask: false, wrong: false })); setError('');
+      return;
+    }
+    const imgs = all.filter((f) => f.type.startsWith('image/'));
     if (!imgs.length) return;
+    setPdf(null);
     setFiles((fs) => [...fs, ...imgs.map((file) => ({ k: key(), file, url: URL.createObjectURL(file) }))]);
   }, []);
   useEffect(() => {
@@ -454,6 +481,7 @@ export function MerchantAdd() {
   const rate = Number(settings?.rate ?? COMMISSION_RATE);
 
   async function read() {
+    if (pdf) return readPdf();
     setStage('reading'); setError(''); setProgress({ text: 'Starting…', f: 0 });
     try {
       const { readStatementImages } = await import('../lib/merchantOcr');
@@ -462,6 +490,33 @@ export function MerchantAdd() {
       setStage('review');
     } catch (e) {
       setError(`The screenshots couldn't be read (${e.message}). You can type the statement in instead.`);
+      setStage('pick');
+    }
+  }
+  async function readPdf() {
+    setStage('reading'); setError(''); setProgress({ text: 'Opening the PDF…', f: 0 });
+    const typed = pw.ask && pw.value.trim();
+    try {
+      const { readStatementPdf, PdfPasswordError } = await import('../lib/merchantPdf');
+      let r;
+      try {
+        r = await readStatementPdf(pdf.file, typed || settings?.pdf_password || '', (text, f) => setProgress({ text, f }));
+      } catch (e) {
+        if (e instanceof PdfPasswordError) {
+          setPw((x) => ({ ...x, ask: true, wrong: Boolean(typed) }));
+          setStage('pick');
+          return;
+        }
+        throw e;
+      }
+      if (typed && pw.remember && typed !== settings?.pdf_password) {
+        rpc('cc_merchant_set_pdf_password', { p_password: typed }).then(() => setSettings((x) => ({ ...x, pdf_password: typed }))).catch(() => {});
+      }
+      setGrid(toGrid(r.statement)); setUnread(r.statement.unread); setDropped(r.dropped); setTexts(r.texts); setPages(r.pages);
+      if (r.footer) { setFooterCount(String(r.footer.count)); setFooterNet(r.footer.net.toFixed(2)); setFooterFromPdf(true); } else setFooterFromPdf(false);
+      setStage('review');
+    } catch (e) {
+      setError(`The PDF couldn't be read (${e.message}). You can add screenshots or type the statement in instead.`);
       setStage('pick');
     }
   }
@@ -499,6 +554,10 @@ export function MerchantAdd() {
     setBusy(true); setError('');
     try {
       const images = [];
+      if (pdf) {   // the PDF itself is kept, as received (still password protected)
+        if (!uploaded.current[pdf.k]) uploaded.current[pdf.k] = await uploadMine(pdf.file, 'merchant', 'pdf', 'application/pdf');
+        images.push(uploaded.current[pdf.k]);
+      }
       for (const f of files) {
         if (!uploaded.current[f.k]) uploaded.current[f.k] = await uploadMine(await compressImage(f.file, 2400, 0.92), 'merchant', 'jpg', 'image/jpeg');
         images.push(uploaded.current[f.k]);
@@ -518,13 +577,31 @@ export function MerchantAdd() {
     <section className="narrow">
       <Link to="/merchant" className="back">Merchant statements</Link>
       <div className="page-head"><h1>Add a merchant statement</h1></div>
-      <p className="lede">Add the HNB merchant statement screenshots in order, top to bottom. Overlapping screenshots are fine: rows that show twice are counted once.
-        The app reads them on this computer, then you check every line against the screenshots before saving.</p>
+      <p className="lede">Add the HNB merchant statement PDF, as HNB sent it: the app opens it with the statement password and reads every line exactly.
+        Screenshots still work (in order, top to bottom; overlaps are counted once). Either way you check every line before saving.</p>
       <div className="facts">
         <div className="row">
+          <label className="btn file-btn primary">Choose the PDF<input type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} /></label>
           <label className="btn file-btn">Choose screenshots<input type="file" accept="image/*" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} /></label>
-          <span className="hint">or paste them here (Ctrl+V)</span>
+          <span className="hint">or paste screenshots here (Ctrl+V)</span>
         </div>
+        {pdf && (
+          <div className="ms-pdf">
+            <span className="ms-pdf-name">{pdf.file.name}</span>
+            <button className="link danger-text" disabled={stage === 'reading'} onClick={() => { setPdf(null); setPw((x) => ({ ...x, ask: false, wrong: false, value: '' })); }}>Remove</button>
+          </div>
+        )}
+        {pdf && pw.ask && stage !== 'reading' && (
+          <div className="ms-password">
+            <p className={pw.wrong ? 'error' : 'warn-text'}>{pw.wrong ? "That password doesn't open this PDF. Check it and try again." : settings?.pdf_password ? "The saved statement password doesn't open this PDF. Enter its password." : 'This PDF is password protected. Enter its password.'}</p>
+            <div className="row">
+              <label className="field"><span className="flabel">PDF password</span>
+                <input type="password" autoComplete="off" value={pw.value} onChange={(e) => setPw((x) => ({ ...x, value: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && pw.value.trim()) read(); }} /></label>
+            </div>
+            <label className="check"><input type="checkbox" checked={pw.remember} onChange={(e) => setPw((x) => ({ ...x, remember: e.target.checked }))} /> Use this password for statements from now on</label>
+          </div>
+        )}
         {files.length > 0 && (
           <ol className="ms-files">
             {files.map((f, i) => (
@@ -547,7 +624,7 @@ export function MerchantAdd() {
           </div>
         ) : (
           <div className="row">
-            <button className="btn primary" disabled={!files.length} onClick={read}>Read the screenshots</button>
+            <button className="btn primary" disabled={!files.length && !pdf} onClick={read}>{pdf ? 'Read the PDF' : 'Read the screenshots'}</button>
             <button className="btn ghost" onClick={typeIn}>Type it in instead</button>
           </div>
         )}
@@ -569,7 +646,7 @@ export function MerchantAdd() {
       <section className="ms-main">
         <Link to="/merchant" className="back">Merchant statements</Link>
         <div className="page-head"><h1>Check the statement</h1></div>
-        <p className="lede">Compare every line with the screenshots. Each sale must have commission = {Math.round(rate * 100)}% of the amount and net = amount less commission,
+        <p className="lede">Compare every line with the {pdf ? 'statement' : 'screenshots'}. Each sale must have commission = {Math.round(rate * 100)}% of the amount and net = amount less commission,
           and each batch must add up to its printed total. Changing an amount fills in the commission and net.</p>
         {dropped > 0 && <p className="hint">{plural(dropped, 'row')} showed in two screenshots and {dropped === 1 ? 'was' : 'were'} counted once. Check the join between screenshots.</p>}
         {unread.length > 0 && (
@@ -654,7 +731,9 @@ export function MerchantAdd() {
             <dt>Commission</dt><dd>LKR {lkr(st.commission)}</dd>
             <dt>Net</dt><dd>LKR {lkr(st.net)}</dd>
           </dl>
-          <p className="hint">Type the totals printed at the bottom of the statement. They must equal what's above, so a missed or misread line can't slip through.</p>
+          <p className="hint">{footerFromPdf
+            ? "Read from the totals box at the bottom of the PDF. They must equal what's above, so a missed line can't slip through."
+            : "Type the totals printed at the bottom of the statement. They must equal what's above, so a missed or misread line can't slip through."}</p>
           <div className="grid2">
             <label className="field"><span className="flabel">Number of sales on the statement</span>
               <input inputMode="numeric" value={footerCount} onChange={(e) => setFooterCount(e.target.value.replace(/\D/g, ''))} /></label>
@@ -684,11 +763,15 @@ export function MerchantAdd() {
         </div>
         {texts.length > 0 && (
           <details className="facts"><summary>What the reader saw</summary>
-            {texts.map((t, i) => <pre key={i} className="ms-raw">{`Screenshot ${i + 1}\n${t}`}</pre>)}
+            {texts.map((t, i) => <pre key={i} className="ms-raw">{`${pdf ? 'Page' : 'Screenshot'} ${i + 1}\n${t}`}</pre>)}
           </details>
         )}
       </section>
-      <aside className="ms-shots-aside" aria-label="Screenshots">
+      <aside className="ms-shots-aside" aria-label={pdf ? 'Statement pages' : 'Screenshots'}>
+        {pdf && pages.map((u, i) => (
+          <figure key={u}><figcaption className="muted small">Page {i + 1}</figcaption>
+            <a href={u} target="_blank" rel="noreferrer"><img src={u} alt={`Page ${i + 1}`} /></a></figure>
+        ))}
         {files.map((f, i) => (
           <figure key={f.k}><figcaption className="muted small">Screenshot {i + 1}</figcaption>
             <a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={`Screenshot ${i + 1}`} /></a></figure>
