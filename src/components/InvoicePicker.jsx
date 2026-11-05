@@ -76,7 +76,7 @@ export default function InvoicePicker({ customerNo, selected, onChange, snapshot
                   </span>
                   {partial && (
                     <span className="inv-note">
-                      LKR {lkr(r.allocated)} already on {(r.on_items ?? []).map((x) => ref(x)).join(', ')}; LKR {lkr(r.available)} left
+                      LKR {lkr(r.allocated)} already on {(r.on_items ?? []).map((x) => ref(x)).join(', ') || 'a PayHere payment'}; LKR {lkr(r.available)} left
                       {r.original_amount ? ` of ${lkr(r.original_amount)}` : ''}
                     </span>
                   )}

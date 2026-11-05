@@ -54,6 +54,8 @@ export async function takeBackup(progress = () => {}) {
   const lines = await step('bank lines', () => read('statement_lines'));
   const batches = await step('merchant batches', () => read('merchant_batches'));
   const drafts = await step('merchant sales', () => read('merchant_drafts'));
+  const phPayouts = await step('PayHere payouts', () => read('payhere_payouts'));
+  const phPayments = await step('PayHere payments', () => read('payhere_payments'));
   const evSeen = new Set(events.rows.map((e) => e.id));
   const history = [...events.rows, ...(parked.events ?? []).filter((e) => !evSeen.has(e.id))].sort((a, b) => a.id - b.id);
 
@@ -124,6 +126,9 @@ export async function takeBackup(progress = () => {}) {
   raw('Bank accounts', accounts);
   raw('Merchant batches', batches);
   raw('Merchant sales', drafts, { 'CC no': (d) => ccRef(d.collection_id) });
+  raw('PayHere payouts', phPayouts);
+  const payoutNo = new Map(phPayouts.rows.map((o) => [o.id, o.payout_no]));
+  raw('PayHere payments', phPayments, { 'Payout no': (p) => payoutNo.get(p.payout_id) ?? null });
   const allKeys = receipts.length ? [...new Set(receipts.flatMap((r) => Object.keys(r)))] : [];
   add('Receipts (all fields)', allKeys, receipts.map((r) => allKeys.map((k) => cell(r[k]))), col.error);
 

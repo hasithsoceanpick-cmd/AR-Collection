@@ -27,6 +27,10 @@ import { CashList, CashForm, CashDetail, CashReceipt } from './pages/Cash';
 import { MerchantPage, MerchantStatement, MerchantAdd } from './pages/Merchant';
 import CardForm from './pages/CardForm';
 import NotInBc from './pages/NotInBc';
+import Aging from './pages/Aging';
+import CustomerList from './pages/CustomerList';
+import CustomerPage from './pages/CustomerPage';
+import PayHerePage from './pages/PayHere';
 
 function Gate() {
   const { session, loading, role, isAdmin } = useAuth();
@@ -57,7 +61,11 @@ function Gate() {
         {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant" element={<MerchantPage />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant/s/:id" element={<MerchantStatement />} />}
         {role === 'finance' && <Route path="merchant/new" element={<MerchantAdd />} />}
+        {(role === 'finance' || role === 'executive') && <Route path="payhere" element={<PayHerePage />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="not-in-bc" element={<NotInBc />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="aging" element={<Aging />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="customer-list" element={<CustomerList />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="customer/:no" element={<CustomerPage />} />}
         {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}

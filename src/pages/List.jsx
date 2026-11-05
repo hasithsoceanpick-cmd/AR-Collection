@@ -90,9 +90,9 @@ export default function List() {
       )}
       {rejected.length > 0 && (
         <div className="notice danger-notice">
-          Finance rejected {rejected.length === 1 ? 'a collection' : `${rejected.length} collections`} back to you:{' '}
+          Finance sent {rejected.length === 1 ? 'a receipt' : `${rejected.length} receipts`} back to you:{' '}
           {rejected.map((c, i) => <span key={c.id}>{i > 0 && ', '}<Link to={`/c/${c.id}`}>{ref(c.id)} {c.customer_name}</Link></span>)}.
-          Open {rejected.length === 1 ? 'it' : 'each one'}, correct the invoices or settlement instructions, and send it back.
+          Open {rejected.length === 1 ? 'it' : 'each one'}, correct it, and send it back.
         </div>
       )}
       {parkedFound.length > 0 && (

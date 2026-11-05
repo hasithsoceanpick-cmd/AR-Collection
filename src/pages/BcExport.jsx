@@ -17,6 +17,11 @@ const ISSUE = {
   drafts_open: { text: 'Card sales on this batch not set off by Sales yet', block: true },
   drafts_review: { text: 'Card payments on this batch waiting for your review', block: true },
   no_bank_line: { text: 'No Amana credit matched to this batch yet', block: true },
+  no_payout_line: { text: 'No Sampath credit paired with this payout yet (PayHere page)', block: true },
+  payments_open: { text: 'PayHere payments with no invoice yet (PayHere page)', block: true },
+  payments_unconfirmed: { text: 'PayHere matches waiting for your confirmation (PayHere page)', block: true },
+  payments_missing: { text: "Payments of this payout aren't in the app: upload a PayHere Payments export that covers it", block: true },
+  invoice_gone: { text: 'An invoice on this payout is no longer open in the customer ledger (already settled?)', block: true },
   total_mismatch: { text: "The journal doesn't add up to the bank credit", block: true },
 };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -87,8 +92,9 @@ export default function BcExport() {
   const load = useCallback(async () => {
     setError('');
     try {
-      const [c0, m, s] = await Promise.all([rpc('cc_bc_candidates'), rpc('cc_bc_merchant_candidates'), db.from('doc_series').select('next_no').eq('code', 'BAKRC').maybeSingle()]);
-      const c = [...(c0 ?? []), ...(m ?? [])].sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)));
+      const [c0, m, p, s] = await Promise.all([rpc('cc_bc_candidates'), rpc('cc_bc_merchant_candidates'), rpc('cc_bc_payhere_candidates'),
+        db.from('doc_series').select('next_no').eq('code', 'BAKRC').maybeSingle()]);
+      const c = [...(c0 ?? []), ...(m ?? []), ...(p ?? [])].sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)));
       setRows(c);
       if (s.data?.next_no) setNextNo(String(s.data.next_no));
       setSel(new Set((c ?? []).filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')).map((r) => r.key)));
@@ -100,8 +106,8 @@ export default function BcExport() {
   const newCount = useMemo(() => (rows ?? []).filter((r) => sel.has(r.key) && !r.doc_no).length, [rows, sel]);
   const needsNew = newCount > 0;
   const selTotal = (rows ?? []).filter((r) => sel.has(r.key)).reduce((a, r) => a + Number(r.credit), 0);
-  // unapplied ticks: bank lines by id, cash receipts as negative ids, merchant batches as 'B<id>'
-  const uid = (r) => (r.batch_id ? `B${r.batch_id}` : r.cash_id ? -r.cash_id : r.line_id);
+  // unapplied ticks: bank lines by id, cash receipts as negative ids, merchant batches as 'B<id>', PayHere payouts as 'P<id>'
+  const uid = (r) => (r.batch_id ? `B${r.batch_id}` : r.payout_id ? `P${r.payout_id}` : r.cash_id ? -r.cash_id : r.line_id);
   const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleUnapplied = (r) => {
     const id = uid(r), on = !unapplied.has(id);
@@ -113,9 +119,11 @@ export default function BcExport() {
     setBusy(true); setError(''); setResult(null); setCopied(false);
     try {
       const picked = (rows ?? []).filter((r) => sel.has(r.key));
-      const lineIds = picked.filter((r) => r.line_id && !r.batch_id).map((r) => r.line_id);
+      const lineIds = picked.filter((r) => r.line_id && !r.batch_id && !r.payout_id).map((r) => r.line_id);
       const cashIds = picked.filter((r) => r.cash_id).map((r) => r.cash_id);
       const batchIds = picked.filter((r) => r.batch_id).map((r) => r.batch_id);
+      const payoutIds = picked.filter((r) => r.payout_id).map((r) => r.payout_id);
+      const ticked = (p) => [...unapplied].filter((x) => typeof x === 'string' && x.startsWith(p)).map((x) => Number(x.slice(1)));
       let res = { docs: [], skipped: [], next_no: needsNew ? Number(nextNo) : null };
       if (lineIds.length || cashIds.length) {
         res = await rpc('cc_bc_export', {
@@ -127,9 +135,16 @@ export default function BcExport() {
         // merchant batches continue the BAKRC numbering after the bank-line documents
         const m = await rpc('cc_bc_export_merchant', {
           p_batch_ids: batchIds, p_first_no: res.next_no ?? (needsNew ? Number(nextNo) : null),
-          p_unapplied_ok: [...unapplied].filter((x) => typeof x === 'string').map((x) => Number(x.slice(1))), p_bc_numbers_ok: bcOk,
+          p_unapplied_ok: ticked('B'), p_bc_numbers_ok: bcOk,
         });
         res = { docs: [...res.docs, ...m.docs], skipped: [...res.skipped, ...m.skipped], next_no: m.next_no };
+      }
+      if (payoutIds.length) {
+        // PayHere payouts continue the BAKRC numbering after the rest
+        const p = await rpc('cc_bc_export_payhere', {
+          p_payout_ids: payoutIds, p_first_no: res.next_no ?? (needsNew ? Number(nextNo) : null), p_unapplied_ok: ticked('P'), p_bc_numbers_ok: bcOk,
+        });
+        res = { docs: [...res.docs, ...p.docs], skipped: [...res.skipped, ...p.skipped], next_no: p.next_no };
       }
       setResult(res);
       if (res.docs.length) await downloadJournal(res.docs, `BC Cash Receipt Journal ${res.docs[0].doc_no}${res.docs.length > 1 ? ` to ${res.docs[res.docs.length - 1].doc_no}` : ''} (${today()}).xlsx`);
@@ -149,6 +164,7 @@ export default function BcExport() {
     <section className="wide">
       <div className="page-head"><h1>Export to BC</h1></div>
       <p className="lede">Closed receipts matched to a bank line (one BAKRC number per bank line, the bank as balancing account), HNB card batches (one BAKRC per batch: customers at the full card amount, the 3% commission to G/L 204003, Amana as balancing account),
+        PayHere payouts (one BAKRC per payout: customers at the full amount, the PayHere fee to G/L 204003, Sampath 590 as balancing account),
         and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. A document keeps its number when exported again; if BC posted it under another number, use Change number so the app matches BC.</p>
       {error && <p className="error">{error}</p>}
 
@@ -208,6 +224,7 @@ export default function BcExport() {
                                 {i === 'no_invoices' && <label className="check inline"><input type="checkbox" checked={unapplied.has(uid(r))} disabled={role !== 'finance'} onChange={() => toggleUnapplied(r)} /> Export unapplied</label>}
                                 {i === 'cheque_map' && role === 'finance' && <button className="link" onClick={() => setMapDeposit(r.deposit_id)}>Choose</button>}
                                 {i === 'needs_split' && <> · {r.collection_id ? <Link to={`/c/${r.collection_id}`}>open</Link> : 'ask Sales'}</>}
+                                {r.payout_id && i !== 'no_invoices' && <> · <Link to={`/payhere?payout=${r.payout_id}`}>open</Link></>}
                               </div>)}
                             </td>
                             <td className="num">{lkr(r.credit)}</td>

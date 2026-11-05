@@ -6,6 +6,8 @@ import StatementView from '../components/StatementView';
 import { lkr, todayISO, fmtDate } from '../lib/format';
 import PhotoInput from '../components/PhotoInput';
 import InvoicePicker from '../components/InvoicePicker';
+import CustomerPicker from '../components/CustomerPicker';
+import { fetchAll } from '../lib/bcimport';
 
 function useAction(onDone) {
   const [busy, setBusy] = useState(false);
@@ -228,7 +230,8 @@ export function TransferReviewPanel({ c, line, onDone }) {
   const differs = line && invTotal != null && Math.abs(Number(line.credit) - invTotal) >= 0.005;
   return (
     <div className="action">
-      <h2>{back ? 'Send back to sales' : 'Review this transfer'}</h2>
+      <h2>{back ? 'Wrong bank line? Send back to relink' : 'Review this transfer'}</h2>
+      {back && <p className="hint">The bank line is unlinked and Sales links the right one. If the customer or invoices are wrong instead, use <strong>Send back to Sales</strong> below: the line stays linked.</p>}
       {!back && <p className="hint">Check the bank line, the receipt and the invoices below, then close it.</p>}
       {!back && differs && <p className="warn-text">Transfer LKR {lkr(line.credit)} vs invoices LKR {lkr(invTotal)}: {Number(line.credit) < invTotal ? 'short payment, settles the oldest invoices first' : 'overpayment, the excess stays unapplied'}.</p>}
       <label className="field"><span className="flabel">{back ? 'What needs fixing?' : 'Note (optional)'}</span>
@@ -237,7 +240,7 @@ export function TransferReviewPanel({ c, line, onDone }) {
       <div className="row">
         {back ? (
           <>
-            <button className="btn danger" disabled={busy} onClick={() => run(() => rpc('cc_send_back_transfer', { p_id: c.id, p_reason: note }))}>Send back</button>
+            <button className="btn danger" disabled={busy} onClick={() => run(() => rpc('cc_send_back_transfer', { p_id: c.id, p_reason: note }))}>Unlink the bank line and send back</button>
             <button className="btn ghost" onClick={() => setBack(false)}>Back</button>
           </>
         ) : (
@@ -459,48 +462,122 @@ export function RejectPanel({ c, onDone, startOpen = false }) {
   );
 }
 
-// Sales — correct a rejected collection and send it back to finance
-export function ResubmitPanel({ c, cheques, onDone }) {
+// Finance — send a finished receipt back to Sales to fix (transfers and cards with finance or closed,
+// cheques deposited or closed, cash received or closed). Its BC document, if exported, is kept as
+// reversed: finance reverses it in BC and the corrected receipt is exported under a new number.
+export const SEND_BACK = { transfer: ['review', 'closed'], card: ['review', 'closed'], cheque: ['deposited', 'closed'], cash: ['received', 'closed'] };
+export const canSendBack = (c) => (SEND_BACK[c.kind] ?? []).includes(c.status);
+export function SendBackPanel({ c, onDone, startOpen = false, onCancel }) {
+  const [open, setOpen] = useState(startOpen);
+  const [note, setNote] = useState('');
+  const [docs, setDocs] = useState(null);
+  const { busy, error, run } = useAction(onDone);
+  useEffect(() => {
+    if (!open) return;
+    rpc('cc_send_back_preview', { p_id: c.id }).then((d) => setDocs(d ?? [])).catch(() => setDocs([]));
+  }, [open, c.id]);
+  if (!open) return <button className="btn ghost" onClick={() => setOpen(true)}>Send back to Sales</button>;
+  const close = () => { setOpen(false); onCancel?.(); };
+  return (
+    <form className="action cancel-box send-back" onSubmit={(e) => { e.preventDefault(); run(() => rpc('cc_send_back', { p_id: c.id, p_note: note })); }}>
+      <h2>Send it back to Sales to fix?</h2>
+      <p className="hint">Sales can change the customer, the invoices and instructions{c.kind === 'cash' ? ', the amount' : ''}{['transfer', 'card'].includes(c.kind) ? ' and the receipt files' : ''}, then send it back
+        {['transfer', 'card'].includes(c.kind) ? ' for you to review again' : ''}. {c.kind === 'transfer' && 'Its bank line stays linked.'}</p>
+      {docs === null ? <p className="muted small">Checking Business Central…</p> : docs.length === 0
+        ? <p className="hint">It isn't exported to Business Central yet, so nothing changes there.</p>
+        : docs.map((d) => (
+          <div key={d.doc_no} className="notice">
+            <strong>{d.doc_no}</strong> {d.in_bc || d.post_status !== 'exported' ? 'is posted in BC: reverse it there.' : 'was exported: reverse it in BC if it was posted, or delete its journal lines if not.'}
+            {' '}The corrected receipt is exported under a new number, with &quot;Replaces {d.doc_no}&quot; in its Comment.
+            {d.others.length > 0 && <> {d.doc_no} also carries {d.others.map((o) => `${o.ref} (${o.customer})`).join(', ')}: {d.others.length === 1 ? 'it is' : 'they are'} exported again with it.</>}
+          </div>
+        ))}
+      <label className="field"><span className="flabel">What should Sales fix?</span>
+        <textarea required rows="3" value={note} onChange={(e) => setNote(e.target.value)} placeholder="This is Beta Cafe's payment, not Alpha Hotel's." /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="btn danger" disabled={busy || !note.trim() || docs === null}>Send back to Sales</button>
+        <button type="button" className="btn ghost" onClick={close}>Keep it</button>
+      </div>
+    </form>
+  );
+}
+
+// Sales — correct a receipt finance sent back (or a rejected cheque collection) and send it back.
+// Customer, invoices and instructions; the expected amount (cheque, before collection) or the amount (cash).
+export function ResubmitPanel({ c, cheques = [], onDone }) {
   const [open, setOpen] = useState(false);
+  const [customers, setCustomers] = useState(null);
+  const [customer, setCustomer] = useState(c.customer_no || c.customer_name ? { customer_no: c.customer_no ?? null, name: c.customer_name } : null);
   const [docs, setDocs] = useState((c.settlement ?? []).map((s) => s.document_no));
   const [invTotal, setInvTotal] = useState(null);
   const [instructions, setInstructions] = useState(c.settlement_instructions ?? '');
   const [amount, setAmount] = useState(c.expected_amount != null ? Number(c.expected_amount).toFixed(2) : '');
+  const [cash, setCash] = useState(c.collected_amount != null ? Number(c.collected_amount).toFixed(2) : '');
   const [note, setNote] = useState('');
   const { busy, error, run } = useAction(onDone);
-  const collected = ['collected', 'received'].includes(c.rejected_from);
+  useEffect(() => {
+    if (!open || customers) return;
+    fetchAll(() => db.from('customers').select('customer_no,name').eq('in_latest_list', true).order('name')).then(setCustomers).catch(() => setCustomers([]));
+  }, [open, customers]);
+
+  const isCash = c.kind === 'cash';
+  const fixedAmount = ['transfer', 'card'].includes(c.kind) || (c.kind === 'cheque' && ['collected', 'received', 'deposited', 'closed'].includes(c.rejected_from));
+  const editExpected = c.kind === 'cheque' && !fixedAmount;
+  const sameCustomer = (customer?.customer_no ?? null) === (c.customer_no ?? null) && customer?.name === c.customer_name;
   const chequeTotal = cheques.reduce((t, q) => t + Number(q.amount), 0);
-  const target = collected ? chequeTotal : Number(String(amount).replace(/,/g, '')) || 0;
-  const total = invTotal ?? (c.settlement ?? []).reduce((t, s) => t + Number(s.remaining_amount), 0);
+  const num = (v) => Number(String(v).replace(/,/g, '')) || 0;
+  const target = isCash ? num(cash) : c.kind === 'cheque' && fixedAmount ? chequeTotal : editExpected ? num(amount) : Number(c.collected_amount ?? c.expected_amount ?? 0);
+  const total = invTotal ?? (sameCustomer ? (c.settlement ?? []).reduce((t, s) => t + Number(s.remaining_amount), 0) : 0);
   const diff = Math.round((target - total) * 100) / 100;
+  const banked = Number(c.banked_amount ?? 0);
+  const posted = c.replaces_doc;
+  const what = { transfer: 'transfer', card: 'card payment', cash: 'cash receipt', cheque: 'collection' }[c.kind] ?? 'receipt';
 
   return (
     <div className="action reject-box">
-      <h2>Rejected by finance: correct it and send it back</h2>
+      <h2>Sent back by finance: correct it and send it back</h2>
       <p className="quote">{c.reject_note}</p>
+      {posted && <p className="hint">Finance reverses {posted} in Business Central; once you send this back it is exported again under a new number.</p>}
       {!open ? (
         <div className="row"><button className="btn primary" onClick={() => setOpen(true)}>Reopen and correct</button></div>
       ) : (
         <form className="stack" onSubmit={(e) => {
           e.preventDefault();
-          run(() => rpc('cc_resubmit', { p_id: c.id, p: { settlement_docs: docs, settlement_instructions: instructions, note,
-            expected_amount: collected ? null : String(amount).replace(/,/g, '') } }));
+          run(() => rpc('cc_resubmit', { p_id: c.id, p: {
+            ...(sameCustomer ? {} : { customer_no: customer?.customer_no ?? null, customer_name: customer?.name ?? '' }),
+            settlement_docs: docs, settlement_instructions: instructions, note,
+            expected_amount: editExpected ? String(amount).replace(/,/g, '') : null,
+            amount: isCash ? String(cash).replace(/,/g, '') : null } }));
         }}>
-          {collected && <p className="hint">The driver collected {cheques.length === 1 ? 'a cheque' : `${cheques.length} cheques`} for <strong>LKR {lkr(chequeTotal)}</strong>.
-            Tick the invoices it pays, add or remove invoices, and say how to settle them.</p>}
-          {c.customer_no ? (
+          <div className="field"><span className="flabel">Customer</span>
+            {customers === null ? <p className="muted small">Loading customers…</p>
+              : <CustomerPicker customers={customers} selected={customer} onSelect={(x) => { setCustomer(x); setDocs([]); setInvTotal(null); }} />}
+          </div>
+          {customer?.customer_no ? (
             <div className="field"><span className="flabel">Invoices being settled</span>
-              <InvoicePicker customerNo={c.customer_no} selected={docs} snapshot={c.settlement ?? []} collectionId={c.id}
+              <InvoicePicker key={customer.customer_no} customerNo={customer.customer_no} selected={docs} snapshot={sameCustomer ? c.settlement ?? [] : []} collectionId={c.id}
                 onChange={(d, t) => { setDocs(d); setInvTotal(t); }} />
             </div>
-          ) : <p className="hint">This customer isn't in the BC customer list, so there are no invoices to tick. Use the settlement instructions.</p>}
-          {!collected && (
+          ) : customer && <p className="hint">This customer isn't in the BC customer list, so there are no invoices to tick. Use the settlement instructions.</p>}
+          {isCash && (
+            <label className="field"><span className="flabel">Amount (LKR)</span>
+              <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value)} />
+              {banked > 0 && <span className="hint">LKR {lkr(banked)} of it is already banked: it can't be less than that.</span>}
+              {num(cash) !== Number(c.collected_amount) && <span className="warn-text">Changing the amount means the handover no longer adds up to the cash finance counted: say why in the note.</span>}
+            </label>
+          )}
+          {editExpected && (
             <label className="field"><span className="flabel">Expected amount (LKR)</span>
               <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
           )}
+          {fixedAmount && <p className="hint">{c.kind === 'cheque'
+            ? <>The {cheques.length === 1 ? 'cheque is' : `${cheques.length} cheques are`} <strong>LKR {lkr(chequeTotal)}</strong>; {['deposited', 'closed'].includes(c.rejected_from) ? 'the bank has them, so the amount stays' : 'that amount stays'}.</>
+            : <>The {what} is <strong>LKR {lkr(c.collected_amount ?? c.expected_amount)}</strong>, {c.kind === 'transfer' ? 'as on the bank line' : 'as on the merchant statement'}.
+              {' '}You can add or change the receipt files below.</>}</p>}
           {docs.length > 0 && Math.abs(diff) >= 0.005 && target > 0 && (
             <p className="warn-text">{diff < 0
-              ? `The ticked invoices are LKR ${lkr(-diff)} more than ${collected ? 'the cheque' : 'the expected amount'}: the oldest are settled first, unless your instructions say otherwise.`
+              ? `The ticked invoices are LKR ${lkr(-diff)} more than the ${what}: the oldest are settled first, unless your instructions say otherwise.`
               : `LKR ${lkr(diff)} more than the ticked invoices: the excess stays unapplied on the customer, unless your instructions say otherwise.`}</p>
           )}
           <label className="field"><span className="flabel">Settlement instructions{docs.length ? ' (optional)' : ''}</span>
@@ -510,7 +587,7 @@ export function ResubmitPanel({ c, cheques, onDone }) {
           {cheques.length > 1 && <p className="hint">There are {cheques.length} cheques: after you send it, you'll be asked again which invoices each cheque pays.</p>}
           {error && <p className="error">{error}</p>}
           <div className="row">
-            <button className="btn primary" disabled={busy || (!docs.length && !instructions.trim())}>Send back to finance</button>
+            <button className="btn primary" disabled={busy || !customer || (!docs.length && !instructions.trim())}>Send back to finance</button>
             <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Close</button>
           </div>
         </form>

@@ -13,11 +13,14 @@ const STAGE = {
   exported: { label: 'Exported, not in BC yet', to: '/bc-check', link: 'BC check' },
   differs: { label: 'In BC with differences', to: '/bc-check', link: 'BC check' },
   card_batch: { label: 'Card batch: add the merchant statement', to: '/merchant', link: 'Merchant statements' },
+  payhere: { label: 'PayHere payout: upload the PayHere export', to: '/payhere', link: 'PayHere' },
   tagged: { label: 'Post it in BC', to: '/bank-rec', link: 'Bank rec' },
 };
-const STAGE_SHORT = { to_export: ['not exported'], exported: ['exported'], differs: ['differs in BC', 'differ in BC'], card_batch: ['card batch', 'card batches'], tagged: ['tagged'] };
+const STAGE_SHORT = { to_export: ['not exported'], exported: ['exported'], differs: ['differs in BC', 'differ in BC'], card_batch: ['card batch', 'card batches'], payhere: ['PayHere payout', 'PayHere payouts'], tagged: ['tagged'] };
 const stageText = (k, c) => `${c} ${STAGE_SHORT[k][c === 1 ? 0 : STAGE_SHORT[k].length - 1]}`;
-const VIEW_TITLE = { debit: 'Uncleared debits', credit: 'Uncleared credits', sales: 'Waiting on Sales: no reference sent', finance: 'Waiting on Finance: not in BC yet', bc: 'In BC, not on the statement' };
+const SALES_SHORT = { no_reference: ['no reference'], sent_back: ['sent back to fix'] };
+const salesText = (st) => Object.keys(SALES_SHORT).filter((k) => st?.[k]).map((k) => `${st[k]} ${SALES_SHORT[k][0]}`).join(' · ');
+const VIEW_TITLE = { debit: 'Uncleared debits', credit: 'Uncleared credits', sales: 'Waiting on Sales', finance: 'Waiting on Finance: not in BC yet', bc: 'In BC, not on the statement' };
 
 function Row({ label, amount, sub, open, onClick, className = '', count, children }) {
   const body = (
@@ -54,9 +57,9 @@ function BankCard({ a, view, pick }) {
         <Row label="Bank statement balance" amount={hasBank ? lkr(a.bank_balance) : '—'} className="rec-strong" />
         <Row label="Add: uncleared debits" count={a.debits.count} amount={lkr(a.debits.total)} open={isOpen('debit')} onClick={tap('debit', a.debits.count)} />
         <Row label="Less: uncleared credits" count={a.credits.count} amount={lkr(a.credits.total)} open={isOpen('credit')} onClick={tap('credit', a.credits.count)} />
-        <Row sub label={<><i className="dot sales" aria-hidden="true" />Waiting on Sales: no reference sent</>} count={a.sales.count} amount={lkr(a.sales.total)}
+        <Row sub label={<><i className="dot sales" aria-hidden="true" />Waiting on Sales</>} count={a.sales.count} amount={lkr(a.sales.total)}
           open={isOpen('sales')} onClick={tap('sales', a.sales.count)}>
-          {a.sales.count > 0 && <small className="rec-note">oldest {daysAgo(a.sales.oldest)} days</small>}
+          {a.sales.count > 0 && <small className="rec-note">{[salesText(a.sales.stages), `oldest ${daysAgo(a.sales.oldest)} days`].filter(Boolean).join(' · ')}</small>}
         </Row>
         <Row sub label={<><i className="dot finance" aria-hidden="true" />Waiting on Finance: not in BC yet</>} count={a.finance.count} amount={lkr(a.finance.total)}
           open={isOpen('finance')} onClick={tap('finance', a.finance.count)}>
@@ -110,7 +113,13 @@ function Lines({ rows, kind, people, reminded, onReminded }) {
                     : <td className="c-ref">{r.reference}</td>}
                   <td className="num c-amt">{lkr(r.amount)}</td>
                   <td className="num c-days"><span className="m-only">{daysAgo(r.txn_date)} days</span><span className="d-only">{daysAgo(r.txn_date)}</span></td>
-                  {sales && (
+                  {sales && r.stage === 'sent_back' && (
+                    <td className="c-act">
+                      <div>Sent back to Sales to fix</div>
+                      {r.collection_id && <Link className="small" to={`/c/${r.collection_id}`}>Open the receipt (remind from there)</Link>}
+                    </td>
+                  )}
+                  {sales && r.stage !== 'sent_back' && (
                     <td className="c-act">
                       <div className="follow"><button className="link small" onClick={() => { setRemindLine(remindLine === r.id ? null : r.id); setSent(null); }}>Remind Sales</button>
                         <Link className="small" to={`/transfer?line=${r.id}`}>Record</Link></div>
@@ -149,15 +158,15 @@ function SalesGroup({ rows, people, reminded, onReminded, heading }) {
   const last = reminded.all;
   return (
     <div className="detail-group">
-      {heading && <h3 className="subhead"><i className="dot sales" aria-hidden="true" />Waiting on Sales: no reference sent ({rows.length})</h3>}
-      <p className="hint">Money in the bank that no one in Sales has identified yet. Remind them, or record it yourself if you know whose payment it is.</p>
-      <div className="remind">
+      {heading && <h3 className="subhead"><i className="dot sales" aria-hidden="true" />Waiting on Sales ({rows.length})</h3>}
+      <p className="hint">Money in the bank that no one in Sales has identified yet, and receipts finance sent back to Sales to fix. Remind them, or record it yourself if you know whose payment it is.</p>
+      {rows.some((r) => r.stage === 'no_reference') && <div className="remind">
         {last && <p className="hint">All unidentified lines last reminded by {last.last_by} on {fmtDateTime(last.last_at)} ({last.to_names}).</p>}
         {msg && <p className="ok-text">{msg}</p>}
         {all
           ? <SalesReminderForm people={people} onSent={async (who) => { await onReminded(); setAll(false); setMsg(`Reminder sent to ${who}.`); }} onCancel={() => setAll(false)} />
           : <div className="row"><button className="btn" onClick={() => { setAll(true); setMsg(''); }}>Remind Sales about every unidentified line</button></div>}
-      </div>
+      </div>}
       <Lines rows={rows} kind="sales" people={people} reminded={reminded} onReminded={onReminded} />
     </div>
   );
@@ -167,7 +176,7 @@ function FinanceGroup({ rows, heading }) {
   return (
     <div className="detail-group">
       {heading && <h3 className="subhead"><i className="dot finance" aria-hidden="true" />Waiting on Finance: not in BC yet ({rows.length})</h3>}
-      <p className="hint">Sales (or the driver) sent the reference, or finance identified it; it isn't in BC's bank ledger yet. Card batches clear when the merchant statement with their batch is added.</p>
+      <p className="hint">Sales (or the driver) sent the reference, or finance identified it; it isn't in BC's bank ledger yet. Card batches clear when the merchant statement with their batch is added, PayHere payouts when the PayHere export with them is uploaded.</p>
       <Lines rows={rows} kind="finance" />
     </div>
   );

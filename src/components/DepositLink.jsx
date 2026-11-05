@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { db, rpc } from '../lib/supabase';
 import { lkr } from '../lib/format';
+import { skipFinanceOnly } from '../lib/payhere';
 import BankLinePicker from './BankLinePicker';
 import StatementView from './StatementView';
 import ChequeLines, { suggestGroups } from './ChequeLines';
@@ -54,8 +55,8 @@ export default function DepositLink({ deposit, onDone }) {
   useEffect(() => { loadCheques(); }, [loadCheques]);
   useEffect(() => {
     if (!admin) return;
-    db.from('bank_credits').select('*').eq('account_id', deposit.account_id).is('link_kind', null)
-      .not('narration', 'ilike', '%MERCHANT SLIPS%').order('txn_date', { ascending: false }).limit(500)
+    skipFinanceOnly(db.from('bank_credits').select('*').eq('account_id', deposit.account_id).is('link_kind', null))
+      .order('txn_date', { ascending: false }).limit(500)
       .then(({ data, error: e }) => { if (e) setError(`Couldn't load the bank lines: ${e.message}`); setBankLines(data ?? []); });
   }, [admin, deposit.account_id]);
   // when the usual way can't match the slip but the bank lines add up cheque by cheque, open that straight away

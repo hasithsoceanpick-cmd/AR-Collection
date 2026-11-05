@@ -69,6 +69,37 @@ function Upload({ title, hint, parse, fn, onDone }) {
   );
 }
 
+// Documents of receipts finance sent back to Sales: reverse each in BC; the corrected receipt gets a new number.
+const REV = {
+  to_reverse: { label: 'Reverse it in BC', cls: 'bad', hint: 'BC still shows it posted.' },
+  reversed: { label: 'Reversed in BC', cls: 'ok', hint: '' },
+  not_in_bc: { label: 'Not in BC', cls: 'muted', hint: "Not in the BC ledgers uploaded: fine if it was never posted; otherwise upload newer ledgers." },
+};
+function Reversals({ rows }) {
+  if (!rows.length) return null;
+  const open = rows.filter((r) => r.state === 'to_reverse');
+  return (
+    <details className="facts reversals" open={open.length > 0}>
+      <summary><strong>Sent back to Sales: {open.length ? `${open.length} to reverse in BC` : 'all reversed'}</strong> ({rows.length})</summary>
+      <p className="hint">When finance sends a finished receipt back to Sales, its document is kept here as reversed. Reverse it in Business Central;
+        the corrected receipt is exported under a new number with &quot;Replaces …&quot; in its Comment. Upload the ledgers again to see BC&apos;s side.</p>
+      <div className="table-wrap flat"><table className="table">
+        <thead><tr><th>Document</th><th>Receipts</th><th className="num">LKR</th><th>Sent back</th><th>BC</th><th>Replaced by</th></tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.id}>
+            <td><strong>{r.doc_no}</strong><div className="muted small">{fmtDate(r.posting_date)}</div></td>
+            <td>{r.receipts.map((x, i) => <span key={x.id}>{i > 0 && ', '}<Link to={`/c/${x.id}`}>{x.ref}</Link> {x.customer}</span>)}</td>
+            <td className="num">{lkr(r.total)}</td>
+            <td className="small">{fmtDateTime(r.reversed_at)} by {r.reversed_by}<div className="muted">{r.note}</div></td>
+            <td><span className={`pill ${REV[r.state].cls}`}>{REV[r.state].label}</span>{REV[r.state].hint && <div className="muted small">{REV[r.state].hint}</div>}</td>
+            <td>{r.replaced_by ?? <span className="muted">not exported yet</span>}</td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </details>
+  );
+}
+
 export default function BcCheck() {
   const { role } = useAuth();
   const [docs, setDocs] = useState(null);
@@ -77,10 +108,12 @@ export default function BcCheck() {
   const [tab, setTab] = useState('attention');
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
+  const [reversals, setReversals] = useState([]);
 
   const load = useCallback(async () => {
     try {
-      const d = await fetchAll(() => db.from('bc_docs').select('id, doc_no, posting_date, total, post_status, bank_check, customer_check, checked_at, export_count, last_exported_at, accepted_at, accepted_by, accept_note, account:bank_accounts(name), lines:bc_doc_lines(account_name, applies_doc_no)').order('doc_no', { ascending: false }));
+      const d = await fetchAll(() => db.from('bc_docs').select('id, doc_no, posting_date, total, post_status, bank_check, customer_check, checked_at, export_count, last_exported_at, accepted_at, accepted_by, accept_note, account:bank_accounts(name), lines:bc_doc_lines(account_name, applies_doc_no)').is('reversed_at', null).order('doc_no', { ascending: false }));
+      setReversals(await rpc('cc_bc_reversals').catch(() => []));
       const u = await db.from('bc_uploads').select('kind, file_name, rows_in, rows_new, done_at').order('done_at', { ascending: false }).limit(6);
       const p = await db.from('profiles').select('id, full_name, email');
       setDocs(d); setUploads(u.data ?? []);
@@ -110,6 +143,8 @@ export default function BcCheck() {
             hint={`BC → Detailed Cust. Ledg. Entries → Open in Excel. Include the invoices' dates too (e.g. from 1 January), so applications can be traced.${last('cust_ledger') ? ` Last upload ${fmtDateTime(last('cust_ledger').done_at)}.` : ''}`} />
         </div>
       )}
+
+      <Reversals rows={reversals} />
 
       <div className="list-head">
         <div className="tabs" role="tablist">

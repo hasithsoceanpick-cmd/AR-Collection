@@ -5,6 +5,7 @@ import { supabase, rpc, db, SCHEMA } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { STATUS, TAGS, KIND_LABEL } from '../lib/workflow';
 import { lkr, ref, fmtDate, fmtDateTime, todayISO, daysAgo } from '../lib/format';
+import { FINANCE_ONLY, isPayHereLine } from '../lib/payhere';
 import { TILE_URL, TILE_ATTR } from '../components/MapPicker';
 import StatusStamp from '../components/StatusStamp';
 import { SalesReminderForm } from '../components/Reminders';
@@ -165,7 +166,7 @@ function Reconciliation() {
   if (lines === null) return <p className="muted">Loading…</p>;
   const byAcct = lines.reduce((m, l) => ((m[l.account_name] ??= []).push(l), m), {});
   const sum = (a, k) => a.reduce((s, x) => s + Number(x[k]), 0);
-  const isCard = (l) => /MERCHANT SLIPS/i.test(l.narration);
+  const isCard = (l) => FINANCE_ONLY.test(l.narration);
   const customerLines = lines.filter((l) => !isCard(l));
   const cols = 5 + (role === 'sales' || role === 'finance' ? 1 : 0) + (role === 'finance' ? 1 : 0);
   const lastAll = reminded.all;
@@ -206,7 +207,10 @@ function Reconciliation() {
                       <td>{fmtDate(l.txn_date)}</td><td>{l.narration}</td><td>{l.reference}</td>
                       <td className="num">{lkr(l.credit)}</td><td className="num">{daysAgo(l.txn_date)}</td>
                       {(role === 'sales' || role === 'finance') && <td>{isCard(l)
-                        ? <Link className="small" to="/merchant" title="HNB card sales, paid in batches. Finance matches it to a merchant statement batch.">Card batch: merchant statement</Link>
+                        ? (isPayHereLine(l)
+                          ? (role === 'finance' ? <Link className="small" to="/payhere" title="roundisland.lk card payments, paid out by PayHere. Finance pairs it with its payout.">PayHere payout</Link>
+                            : <span className="muted small">PayHere payout: finance pairs it</span>)
+                          : <Link className="small" to="/merchant" title="HNB card sales, paid in batches. Finance matches it to a merchant statement batch.">Card batch: merchant statement</Link>)
                         : <>
                           {myParked[l.id] ? myParked[l.id].map((p) => (
                             <Link key={p.id} className="btn small primary" to={`/c/${p.id}?line=${l.id}`} title={`Your parked payment from ${p.customer_name}, LKR ${lkr(p.amount)}`}>Match parked {ref(p.id)}</Link>

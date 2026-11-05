@@ -126,7 +126,6 @@ export default function Overview() {
             Upload the customer list again on <Link to="/customers">Customer data</Link>, with BC's <strong>Customer Posting Group</strong> and <strong>Payment Terms Code</strong> columns showing.</p>
         </div>
       )}
-      <p className="hint">Export customers are left out of this overview{Number(R.export_excluded?.customers) > 0 ? `: ${R.export_excluded.customers} customers, LKR ${lkr(R.export_excluded.open)} open` : ''}. Their data stays in the app and in BC.</p>
       <div className="kpi-grid">
         <Kpi label="Open receivables" value={`LKR ${M(R.open)}`} sub={`${R.invoices_open} invoices · ${R.customers_owing} customers`} />
         <Kpi label="Overdue" value={`LKR ${M(R.overdue)}`} sub={`${pct(R.overdue, R.open)}% of open`} tone={pct(R.overdue, R.open) > 50 ? 'warn' : null} />
@@ -141,7 +140,7 @@ export default function Overview() {
         <div className="facts flag-card">
           <h2>Overdue over 30 days, no collection arranged</h2>
           <p className="flag-big">{R.unarranged.customers} customers · LKR {M(R.unarranged.amount)}</p>
-          <p className="hint">HORECA and Local customers with invoices over 30 days late and nothing recorded in the app to collect it. Export excluded.</p>
+          <p className="hint">HORECA and Local customers with invoices over 30 days late and nothing recorded in the app to collect it.</p>
           <ul className="plain">{R.unarranged.top.map((u) => <li key={u.customer_no}>{u.name} <span className="muted">({u.seg})</span>: LKR {lkr(u.o30)}, oldest due {fmtDate(u.oldest_due)}</li>)}</ul>
         </div>
         <div className="facts flag-card">

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { db } from '../lib/supabase';
 import { lkr, fmtDate } from '../lib/format';
+import { skipFinanceOnly } from '../lib/payhere';
 
 // Pick unlinked bank credit line(s).
 //  single:   value = line id,        onChange(line)
 //  multiple: value = [line ids],     onChange([lines]); `suggest(lines)` may return ids to pre-select.
-// HNB merchant settlements ("HNB MERCHANT SLIPS") are left out: finance matches those
-// to merchant statement batches. `merchant` shows them instead (for that match).
+// HNB merchant settlements ("HNB MERCHANT SLIPS") and PayHere payouts are left out: finance matches those
+// to merchant statement batches and PayHere payouts. `merchant` shows the HNB ones instead (for that match).
 export default function BankLinePicker({ accountId, amount = null, exact = null, amounts = null, value, onChange, multiple = false, suggest = null, showAccount = false, merchant = false }) {
   const amountsKey = amounts ? amounts.join('|') : '';
   const [lines, setLines] = useState(null);
@@ -18,7 +19,7 @@ export default function BankLinePicker({ accountId, amount = null, exact = null,
     setLines(null);
     let query = db.from('bank_credits').select('*').is('link_kind', null).order('txn_date', { ascending: false }).limit(500);
     if (accountId) query = query.eq('account_id', accountId);
-    query = merchant ? query.ilike('narration', '%MERCHANT SLIPS%') : query.not('narration', 'ilike', '%MERCHANT SLIPS%');
+    query = merchant ? query.ilike('narration', '%MERCHANT SLIPS%') : skipFinanceOnly(query);
     if (exact != null) query = query.eq('credit', Number(exact));
     if (amounts?.length) query = query.in('credit', amounts.map(Number));
     query.then(({ data, error }) => {

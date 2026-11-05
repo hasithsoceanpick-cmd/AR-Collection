@@ -55,22 +55,29 @@ export function CardFacts({ c, draft, photosGone, canEditFiles = false, onDone }
 export function CardSetOffPanel({ c, onDone }) {
   const [draft, setDraft] = useState(null);
   const [ok, setOk] = useState(false);
+  const [dateOk, setDateOk] = useState(false);
   const { busy, error, run } = useAction(onDone);
   const mismatch = draft && draft.card_last4 && c.card_last4 && draft.card_last4 !== c.card_last4;
+  const otherDate = Boolean(draft?.otherDate);
   return (
     <div className="action">
       <h2>Set off against the merchant statement</h2>
-      <p className="hint">Parked: finance can't see this yet. Once the merchant statement with this sale is in the app, pick the sale
-        (LKR {lkr(c.collected_amount)}, within a day of {fmtDate(c.card_date)}) and send it. If the amount or date was wrong, change the entry first.</p>
-      <DraftPicker amount={Number(c.collected_amount)} cardDate={c.card_date} value={draft} onChange={(d) => { setDraft(d); setOk(false); }} />
+      <p className="hint">Parked: finance can't see this yet. Pick the sale of LKR {lkr(c.collected_amount)} on the merchant statement and send it.
+        Sales within a day of the card date ({fmtDate(c.card_date)}) come first, then sales of the same value on other dates.</p>
+      <DraftPicker amount={Number(c.collected_amount)} cardDate={c.card_date} value={draft} invoices={c.settlement ?? []}
+        onChange={(d) => { setDraft(d); setOk(false); setDateOk(false); }} />
+      {otherDate && (
+        <label className="check"><input type="checkbox" checked={dateOk} onChange={(e) => setDateOk(e.target.checked)} />
+          The card was charged on {fmtDate(draft.txn_date)}, the date HNB shows, not {fmtDate(c.card_date)}. Correct the card date and set it off.</label>
+      )}
       {mismatch && (
         <label className="check"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} />
           The statement shows the card ending {draft.card_last4}, the slip {c.card_last4}. I've checked: this is the right sale.</label>
       )}
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <button className="btn primary" disabled={busy || !draft || (mismatch && !ok)}
-          onClick={() => run(() => rpc('cc_card_send', { p_id: c.id, p_draft_id: draft.draft_id, p_allow_mismatch: Boolean(mismatch && ok) }))}>
+        <button className="btn primary" disabled={busy || !draft || (mismatch && !ok) || (otherDate && !dateOk)}
+          onClick={() => run(() => rpc(otherDate ? 'cc_card_send_on_sale_date' : 'cc_card_send', { p_id: c.id, p_draft_id: draft.draft_id, p_allow_mismatch: Boolean(mismatch && ok) }))}>
           Set off and send to finance</button>
         <Link className="btn" to={`/card?edit=${c.id}`}>Change the entry</Link>
       </div>
@@ -87,9 +94,9 @@ export function CardReviewPanel({ c, draft, onDone }) {
   const differs = invTotal != null && Math.abs(Number(c.collected_amount) - invTotal) >= 0.005;
   return (
     <div className="action">
-      <h2>{back ? 'Send back to Sales' : 'Review this card payment'}</h2>
+      <h2>{back ? 'Wrong card sale? Unlink it and send back' : 'Review this card payment'}</h2>
       {!back && <p className="hint">Check the sale on the merchant statement, the slip and the invoices, then close it. The batch goes to BC once every sale on it is closed and its Amana credit is matched.</p>}
-      {back && <p className="hint">The payment goes back to Sales as parked, and its sale on the statement is freed so it can be set off again.</p>}
+      {back && <p className="hint">The payment goes back to Sales as parked, and its sale on the statement is freed so it can be set off again. If only the customer or invoices are wrong, use <strong>Send back to Sales</strong> below: it stays on its sale.</p>}
       {!back && differs && <p className="warn-text">Card LKR {lkr(c.collected_amount)} vs invoices LKR {lkr(invTotal)}: {Number(c.collected_amount) < invTotal ? 'short payment, settles the oldest invoices first' : 'overpayment, the excess stays unapplied'}.</p>}
       {!back && draft === null && <p className="error">Not set off against a sale. Send it back to Sales.</p>}
       <label className="field"><span className="flabel">{back ? 'What needs correcting?' : 'Note (optional)'}</span>
@@ -98,7 +105,7 @@ export function CardReviewPanel({ c, draft, onDone }) {
       <div className="row">
         {back ? (
           <>
-            <button className="btn danger" disabled={busy} onClick={() => run(() => rpc('cc_card_send_back', { p_id: c.id, p_reason: note }))}>Send back</button>
+            <button className="btn danger" disabled={busy} onClick={() => run(() => rpc('cc_card_send_back', { p_id: c.id, p_reason: note }))}>Unlink the card sale and send back</button>
             {c.status === 'review' && <button className="btn ghost" onClick={() => setBack(false)}>Back</button>}
           </>
         ) : (
@@ -115,6 +122,6 @@ export function CardReviewPanel({ c, draft, onDone }) {
 // Finance: send a closed card payment back (only while its batch isn't exported).
 export function CardReopenPanel({ c, draft, onDone }) {
   const [open, setOpen] = useState(false);
-  if (!open) return <button className="btn ghost" onClick={() => setOpen(true)}>Send back to Sales</button>;
+  if (!open) return <button className="btn ghost" onClick={() => setOpen(true)}>Wrong card sale? Unlink it</button>;
   return <CardReviewPanel c={c} draft={draft} onDone={onDone} />;
 }

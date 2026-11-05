@@ -198,6 +198,7 @@ export async function parseBankLedger(file) {
 const CUST_DETAIL_COLUMNS = {
   entry_no: ['entryno'], posting_date: ['postingdate'], entry_type: ['entrytype'], document_type: ['documenttype'],
   document_no: ['documentno'], customer_no: ['customerno'], amount: ['amountlcy', 'amount'], cust_ledger_entry_no: ['custledgerentryno'],
+  due_date: ['initialentryduedate', 'duedate'], currency_code: ['currencycode'],
 };
 const CUST_DETAIL_REQUIRED = { entry_no: 'Entry No.', entry_type: 'Entry Type', document_no: 'Document No.', cust_ledger_entry_no: 'Cust. Ledger Entry No.' };
 
@@ -219,6 +220,7 @@ export async function parseDetailedCustLedger(file) {
       document_type: toText(get(row, 'document_type')), document_no: toText(get(row, 'document_no')),
       customer_no: toText(get(row, 'customer_no')), amount: toNumber(get(row, 'amount')) ?? 0,
       cust_ledger_entry_no: toNumber(get(row, 'cust_ledger_entry_no')),
+      due_date: toISODate(get(row, 'due_date')), currency_code: toText(get(row, 'currency_code')),
     });
   }
   if (!out.length) throw new Error('The file has the right columns but no entries in it.');

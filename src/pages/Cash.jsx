@@ -4,14 +4,16 @@ import { db, rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { fetchAll } from '../lib/bcimport';
+import { skipFinanceOnly } from '../lib/payhere';
 import CustomerPicker from '../components/CustomerPicker';
 import InvoicePicker from '../components/InvoicePicker';
 import Reminders from '../components/Reminders';
 import { NumberCheck, Renumber, NumberEditor } from '../components/DocNumbers';
+import { SendBackPanel, ResubmitPanel } from './actions';
 
 export const chRef = (id) => `CH-${String(id).padStart(5, '0')}`;
 const HANDOVER_SELECT = '*, creator:profiles!cash_handovers_created_by_fkey(full_name,email), receiver:profiles!cash_handovers_received_by_fkey(full_name,email)';
-const LINE_SELECT = 'id, handover_id, customer_no, customer_name, settlement, settlement_instructions, invoice_refs, collected_amount, banked_amount, cshrc_no, status, received_at';
+const LINE_SELECT = 'id, kind, handover_id, customer_no, customer_name, settlement, settlement_instructions, invoice_refs, expected_amount, collected_amount, banked_amount, cshrc_no, status, received_at, created_by, rejected_from, rejected_at, reject_note, replaces_doc';
 const r2 = (n) => Math.round(Number(n) * 100) / 100;
 const who = (p) => p?.full_name || p?.email || '—';
 
@@ -46,7 +48,7 @@ export function amountInWords(amount) {
 
 // =====================================================================
 export function CashList() {
-  const { role } = useAuth();
+  const { role, session, isAdmin } = useAuth();
   const [params] = useSearchParams();
   const [handovers, setHandovers] = useState(null);
   const [lines, setLines] = useState([]);
@@ -74,6 +76,16 @@ export function CashList() {
         {role === 'sales' && <Link className="btn primary" to="/cash/new">New cash handover</Link>}
       </div>
       {error && <p className="error">{error}</p>}
+      {role === 'sales' && (() => {
+        const back = lines.filter((l) => l.status === 'rejected' && (l.created_by === session?.user.id || isAdmin));
+        return back.length > 0 && (
+          <div className="notice danger-notice">
+            Finance sent {back.length === 1 ? 'a cash receipt' : `${back.length} cash receipts`} back to you:{' '}
+            {back.map((l, i) => <span key={l.id}>{i > 0 && ', '}<Link to={`/cash/${l.handover_id}`}>{chRef(l.handover_id)} {l.customer_name}</Link></span>)}.
+            Open the handover, correct it, and send it back.
+          </div>
+        );
+      })()}
 
       {role !== 'sales' && (
         <div className="kpi-grid">
@@ -139,7 +151,7 @@ function BankCash({ inHand, onDone }) {
   useEffect(() => {
     setLine(null); setLines([]);
     if (!accountId) return;
-    db.from('bank_credits').select('id, txn_date, narration, reference, credit').eq('account_id', accountId).is('link_kind', null).not('narration', 'ilike', '%MERCHANT SLIPS%')
+    skipFinanceOnly(db.from('bank_credits').select('id, txn_date, narration, reference, credit').eq('account_id', accountId).is('link_kind', null))
       .order('txn_date', { ascending: false }).limit(300).then(({ data }) => setLines(data ?? []));
   }, [accountId]);
   // oldest receipts first, up to the deposit amount
@@ -332,6 +344,7 @@ export function CashDetail() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [backId, setBackId] = useState(null);
   useEffect(() => { if (role === 'finance') db.from('doc_series').select('next_no').eq('code', 'CSHRC').maybeSingle().then(({ data }) => data?.next_no && setFirst(String(data.next_no))); }, [role]);
   if (h === undefined) return <p className="muted">Loading…</p>;
   if (!h) return <div className="empty"><p>{error || "This handover isn't available to you."}</p><Link to="/cash">Back to cash handovers</Link></div>;
@@ -340,6 +353,7 @@ export function CashDetail() {
   const mine = h.created_by === session.user.id || isAdmin;
   const run = async (fn) => { setBusy(true); setErr(''); try { await fn(); await load(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
   const n = live.length;
+  const finAct = role === 'finance' && h.status === 'received';
   return (
     <section className="wide">
       <Link to="/cash" className="back">All cash handovers</Link>
@@ -352,19 +366,30 @@ export function CashDetail() {
       <div className="facts">
         <h2>Customers ({n})</h2>
         <div className="table-wrap flat"><table className="table">
-          <thead><tr><th>Customer</th><th>Invoices / instructions</th><th>CSHRC</th><th className="num">LKR</th>{h.status === 'received' && <th className="num">Banked</th>}</tr></thead>
+          <thead><tr><th>Customer</th><th>Invoices / instructions</th><th>CSHRC</th><th className="num">LKR</th>{h.status === 'received' && <th className="num">Banked</th>}{finAct && <th />}</tr></thead>
           <tbody>{live.map((l) => (
-            <tr key={l.id}><td>{l.customer_name}<div className="muted small">{l.customer_no ?? 'not in BC list'}</div></td>
+            <tr key={l.id}><td>{l.customer_name}<div className="muted small">{l.customer_no ?? 'not in BC list'}</div>
+                {l.status === 'rejected' && <span className="pill bad">Sent back to Sales</span>}</td>
               <td>{l.invoice_refs || <span className="muted">—</span>}{l.settlement_instructions && <div className="muted small">{l.settlement_instructions}</div>}</td>
-              <td>{l.cshrc_no ?? <span className="muted">given when received</span>}
+              <td>{l.cshrc_no ?? (l.replaces_doc ? <span className="warn-text">New number needed ({l.replaces_doc} reversed)</span> : <span className="muted">given when received</span>)}
                 {l.cshrc_no && role === 'finance' && l.status !== 'cancelled' && <Renumber kind="cash" id={l.id} onDone={load} />}</td><td className="num">{lkr(l.collected_amount)}</td>
-              {h.status === 'received' && <td className="num">{lkr(l.banked_amount)}</td>}</tr>
+              {h.status === 'received' && <td className="num">{lkr(l.banked_amount)}</td>}
+              {finAct && <td>{['received', 'closed'].includes(l.status) && backId !== l.id && <button className="link small" onClick={() => setBackId(l.id)}>Send back</button>}</td>}</tr>
           ))}</tbody>
         </table></div>
         {h.notes && <p className="hint">Notes: {h.notes}</p>}
         {h.return_reason && h.status === 'returned' && <p className="warn-text">Sent back: {h.return_reason}</p>}
         {h.cancel_reason && <p className="muted">Cancelled: {h.cancel_reason}</p>}
       </div>
+
+      {backId && live.some((l) => l.id === backId) && (
+        <SendBackPanel key={backId} c={live.find((l) => l.id === backId)} startOpen onCancel={() => setBackId(null)} onDone={async () => { setBackId(null); await load(); }} />
+      )}
+      {live.filter((l) => l.status === 'rejected').map((l) => (role === 'sales' && (l.created_by === session.user.id || isAdmin)
+        ? <div key={l.id}><h2 className="subhead">{l.customer_name}, LKR {lkr(l.collected_amount)}</h2><ResubmitPanel c={l} onDone={load} /></div>
+        : <div key={l.id} className="notice danger-notice">{l.customer_name} (LKR {lkr(l.collected_amount)}) is with Sales to fix: {l.reject_note}.
+            {l.replaces_doc && <> Reverse <strong>{l.replaces_doc}</strong> in Business Central; the corrected receipt gets a new CSHRC number.</>}</div>))}
+      {role === 'finance' && live.filter((l) => ['received', 'closed'].includes(l.status) && !l.cshrc_no && l.replaces_doc).map((l) => <NewCshrc key={l.id} l={l} onDone={load} />)}
 
       {role === 'finance' && h.status === 'submitted' && (
         <div className="action">
@@ -397,6 +422,34 @@ export function CashDetail() {
       )}
       {err && <p className="error">{err}</p>}
     </section>
+  );
+}
+
+// Finance: a corrected cash receipt whose CSHRC was reversed in BC gets a new number.
+function NewCshrc({ l, onDone }) {
+  const [no, setNo] = useState('');
+  const [bcOk, setBcOk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { db.from('doc_series').select('next_no').eq('code', 'CSHRC').maybeSingle().then(({ data }) => data?.next_no && setNo(String(data.next_no))); }, []);
+  async function save() {
+    setBusy(true); setErr('');
+    try { await rpc('cc_cash_new_number', { p_id: l.id, p_no: no, p_bc_numbers_ok: bcOk }); await onDone(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <div className="action">
+      <h2>{l.customer_name}: give it a new CSHRC number</h2>
+      <p className="hint">Sales corrected it. {l.replaces_doc} is reversed, so it is exported under a new number, with &quot;Replaces {l.replaces_doc}&quot; in its Comment.</p>
+      <div className="row">
+        <label className="field"><span className="flabel">New CSHRC number</span>
+          <input inputMode="numeric" value={no} onChange={(e) => setNo(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 580" />
+          {no && <span className="hint">CSHRC-{no.padStart(7, '0')}</span>}</label>
+      </div>
+      {/already in Business Central/.test(err) && <label className="check"><input type="checkbox" checked={bcOk} onChange={(e) => setBcOk(e.target.checked)} /> Already posted in BC under this number: use it</label>}
+      {err && <p className="error">{err}</p>}
+      <button className="btn primary" disabled={busy || !no} onClick={save}>Save the number</button>
+    </div>
   );
 }
 

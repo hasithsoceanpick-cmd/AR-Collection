@@ -10,6 +10,7 @@ import { isPdf } from '../lib/merchantPdf';
 import SignedImage from '../components/SignedImage';
 import BankLinePicker from '../components/BankLinePicker';
 import { cardNo } from '../components/DraftPicker';
+import SaleInvoices, { useInvoicesOfAmount } from '../components/SaleInvoices';
 
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const dayGap = (a, b) => Math.abs((new Date(`${a}T00:00:00`) - new Date(`${b}T00:00:00`)) / 86400000);
@@ -38,6 +39,9 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
   const el = useRef(null);
   const exported = Boolean(b.doc_no);
   const fin = role === 'finance';
+  const showNet = role !== 'sales';   // Sales see each sale at what the customer paid (the invoice value), not net of HNB's commission
+  const openAmounts = useMemo(() => (exported ? [] : (drafts ?? []).filter((d) => !d.collection_id).map((d) => Number(d.amount))), [drafts, exported]);
+  const invoicesOf = useInvoicesOfAmount(role === 'sales' || fin ? openAmounts : []);
 
   const loadDrafts = useCallback(async () => {
     const { data, error: e } = await db.from('merchant_drafts')
@@ -62,15 +66,21 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
     if (d.collection_id) return <span className="muted">Set off by another sales person</span>;
     if (exported) return <span className="muted">—</span>;
     const mine = role === 'sales' ? parked.filter((p) => Math.abs(Number(p.collected_amount) - Number(d.amount)) < 0.005 && (!p.card_date || dayGap(p.card_date, d.txn_date) <= 1)) : [];
+    const mineOther = role === 'sales' ? parked.filter((p) => Math.abs(Number(p.collected_amount) - Number(d.amount)) < 0.005 && p.card_date && dayGap(p.card_date, d.txn_date) > 1) : [];
     return (
       <div className="ms-setoff">
         {mine.map((p) => (p.card_last4 && d.card_last4 && p.card_last4 !== d.card_last4
           ? <Link key={p.id} className="btn small" to={`/c/${p.id}`} title={`Card ending ${p.card_last4} on the slip, ${d.card_last4} here: check it on the payment`}>Check {ref(p.id)} {p.customer_name}</Link>
           : <button key={p.id} className="btn small primary" disabled={busy} onClick={() => act(() => rpc('cc_card_send', { p_id: p.id, p_draft_id: d.id, p_allow_mismatch: false }))}>
               Set off {ref(p.id)} {p.customer_name}</button>))}
+        {mineOther.map((p) => (
+          <Link key={p.id} className="btn small" to={`/c/${p.id}`} title={`Card date ${fmtDate(p.card_date)} on the payment, ${fmtDate(d.txn_date)} here`}>
+            {ref(p.id)} {p.customer_name}? (card date {fmtDate(p.card_date)})</Link>
+        ))}
         {(role === 'sales' || fin) && <Link className="small" to={`/card?draft=${d.id}`}>{mine.length ? 'Another customer' : 'Record card payment'}</Link>}
         {fin && <button className="link small" onClick={() => setFix({ id: d.id, txn_date: d.txn_date, card_first6: d.card_first6 ?? '', card_last4: d.card_last4 ?? '' })}>Correct</button>}
         {!fin && role !== 'sales' && <span className="warn-text small">Not set off</span>}
+        {(role === 'sales' || fin) && !mine.length && <SaleInvoices draft={d} invoices={invoicesOf(d.amount)} />}
       </div>
     );
   }
@@ -82,15 +92,15 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
         <span className="mb-no">{b.hnbms_no}</span>
         <span className="mb-date">Batch {fmtDate(b.pres_date)}</span>
         <span className="mb-meta">{plural(Number(b.drafts), 'sale')} · {Number(b.drafts) - Number(b.drafts_open)} set off</span>
-        <span className="mb-amt">Net LKR {lkr(b.net)}</span>
+        <span className="mb-amt">LKR {lkr(b.gross)}{showNet && <span className="mb-net"> · net {lkr(b.net)}</span>}</span>
         <span className={`stamp tone-${st.tone}`}>{st.label}</span>
       </button>
       {open && (
         <div className="mb-body">
           <dl className="mb-facts">
-            <dt>Sales (gross)</dt><dd>LKR {lkr(b.gross)}</dd>
-            <dt>HNB commission</dt><dd>LKR {lkr(b.commission)}</dd>
-            <dt>Paid into Amana</dt><dd>{b.line_id ? <>LKR {lkr(b.bank_credit)} on {fmtDate(b.bank_date)}, ref {b.bank_ref}</> : <span className="warn-text">No Amana credit of LKR {lkr(b.net)} matched yet</span>}</dd>
+            <dt>Sales (what customers paid)</dt><dd>LKR {lkr(b.gross)}</dd>
+            {showNet && <><dt>HNB commission</dt><dd>LKR {lkr(b.commission)}</dd>
+            <dt>Paid into Amana</dt><dd>{b.line_id ? <>LKR {lkr(b.bank_credit)} on {fmtDate(b.bank_date)}, ref {b.bank_ref}</> : <span className="warn-text">No Amana credit of LKR {lkr(b.net)} matched yet</span>}</dd></>}
             <dt>Business Central</dt><dd>{b.doc_no ? <>{b.doc_no}: {b.post_status === 'posted' ? 'posted' : b.post_status === 'posted_diff' ? 'posted with differences (see BC check)' : `exported ${b.export_count}×, not confirmed yet`}</> : <span className="muted">Not exported</span>}</dd>
             <dt>On statement{(b.statements ?? []).length === 1 ? '' : 's'}</dt><dd>{(b.statements ?? []).map((s, i) => <span key={s}>{i > 0 && ', '}<Link to={`/merchant/s/${s}`}>No. {s}</Link></span>)}</dd>
           </dl>
@@ -98,17 +108,17 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
           {drafts === null ? <p className="muted">Loading the sales…</p> : (
             <div className="table-wrap flat">
               <table className="table">
-                <thead><tr><th>Sale date</th><th>Card</th><th className="num">Amount</th><th className="num hide-sm">Commission</th><th className="num hide-sm">Net</th><th>Set off against</th></tr></thead>
+                <thead><tr><th>Sale date</th><th>Card</th><th className="num">{showNet ? 'Amount' : 'Sale value'}</th>{showNet && <><th className="num hide-sm">Commission</th><th className="num hide-sm">Net</th></>}<th>Set off against</th></tr></thead>
                 <tbody>
                   {drafts.map((d) => (
                     <Fragment key={d.id}>
                       <tr className={!d.collection_id && !exported ? 'row-open' : ''}>
                         <td>{fmtDate(d.txn_date)}</td><td className="mono">{cardNo(d.card_first6, d.card_last4)}</td>
-                        <td className="num">{lkr(d.amount)}</td><td className="num hide-sm">{lkr(d.commission)}</td><td className="num hide-sm">{lkr(d.net)}</td>
+                        <td className="num">{lkr(d.amount)}</td>{showNet && <><td className="num hide-sm">{lkr(d.commission)}</td><td className="num hide-sm">{lkr(d.net)}</td></>}
                         <td>{setOff(d)}</td>
                       </tr>
                       {fix?.id === d.id && (
-                        <tr className="sub-row"><td colSpan={6}>
+                        <tr className="sub-row"><td colSpan={showNet ? 6 : 4}>
                           <div className="row">
                             <label className="inline-field">Sale date <input type="date" value={fix.txn_date} max={b.pres_date} onChange={(e) => setFix({ ...fix, txn_date: e.target.value })} /></label>
                             <label className="inline-field">Card first 6 <input inputMode="numeric" maxLength={6} value={fix.card_first6} onChange={(e) => setFix({ ...fix, card_first6: e.target.value })} /></label>
@@ -122,8 +132,8 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
                     </Fragment>
                   ))}
                 </tbody>
-                <tfoot><tr><td colSpan={2}>Batch total{b.printed_total != null ? ` (statement prints ${lkr(b.printed_total)})` : ''}</td>
-                  <td className="num">{lkr(b.gross)}</td><td className="num hide-sm">{lkr(b.commission)}</td><td className="num hide-sm">{lkr(b.net)}</td><td /></tr></tfoot>
+                <tfoot><tr><td colSpan={2}>Batch total{showNet && b.printed_total != null ? ` (statement prints ${lkr(b.printed_total)} net)` : ''}</td>
+                  <td className="num">{lkr(b.gross)}</td>{showNet && <><td className="num hide-sm">{lkr(b.commission)}</td><td className="num hide-sm">{lkr(b.net)}</td></>}<td /></tr></tfoot>
               </table>
             </div>
           )}
@@ -202,11 +212,12 @@ export function MerchantPage() {
     if (!nos.length) return <span className="muted">nothing taken over</span>;
     return `${nos[0].hnbms_no}${nos.length > 1 ? ` to ${nos[nos.length - 1].hnbms_no}` : ''} (${fmtDate(nos[0].pres_date)}${nos.length > 1 ? ` – ${fmtDate(nos[nos.length - 1].pres_date)}` : ''})`;
   };
+  const gross = (s) => (s.merchant_statement_batches ?? []).reduce((a, x) => a + Number(byId[x.batch_id]?.gross ?? 0), 0);
   const tabs = [
     { key: 'open', label: 'To finish', n: unfinished.length },
     { key: 'all', label: 'All batches', n: batches.length },
     { key: 'statements', label: 'Statements', n: stmts.length },
-    { key: 'amana', label: 'Amana credits without a batch', n: waiting.length },
+    ...(role !== 'sales' ? [{ key: 'amana', label: 'Amana credits without a batch', n: waiting.length }] : []),
   ];
   const list = active === 'open' ? unfinished : batches;
 
@@ -219,14 +230,19 @@ export function MerchantPage() {
           {(role === 'sales' || role === 'finance') && <Link className="btn" to="/card">Record card payment</Link>}
         </div>
       </div>
-      <p className="lede">HNB pays card sales in batches: each batch (one processing date) gets an HNBMS number, and its net after the 3% commission arrives in Amana.
-        Sales set each sale off against the card payment it belongs to; when every sale in a batch is set off, reviewed and its Amana credit matched, the batch goes to BC as one BAKRC document.</p>
+      {role === 'sales' ? (
+        <p className="lede">Every card sale on HNB's statements, at what the customer paid (the invoice value). Set each sale off against its card payment;
+          for a sale nobody has recorded yet, the open invoices of exactly that value are shown under it.</p>
+      ) : (
+        <p className="lede">HNB pays card sales in batches: each batch (one processing date) gets an HNBMS number, and its net after the 3% commission arrives in Amana.
+          Sales set each sale off against the card payment it belongs to; when every sale in a batch is set off, reviewed and its Amana credit matched, the batch goes to BC as one BAKRC document.</p>
+      )}
       {error && <p className="error">{error}</p>}
 
       <div className="kpis">
         <div><span>{toSetOff}</span>sales not set off yet<small>across {plural(batches.filter((b) => Number(b.drafts_open) > 0 && !b.doc_no).length, 'batch')}</small></div>
         <div><span>{withFinance}</span>card payments with finance<small>set off, waiting for review</small></div>
-        <div><span>{waiting.length}</span>Amana credits without a batch<small>LKR {lkr(waiting.reduce((a, l) => a + Number(l.credit), 0))}</small></div>
+        {role !== 'sales' && <div><span>{waiting.length}</span>Amana credits without a batch<small>LKR {lkr(waiting.reduce((a, l) => a + Number(l.credit), 0))}</small></div>}
         {role === 'sales' && <div><span>{parked.length}</span>your parked card payments<small>waiting for their statement</small></div>}
       </div>
 
@@ -245,12 +261,12 @@ export function MerchantPage() {
         stmts.length === 0 ? <div className="empty"><p>No statements added yet.</p></div> : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>No.</th><th>As at</th><th>Batches</th><th className="num">Sales</th><th className="num">Net LKR</th><th>Added</th></tr></thead>
+              <thead><tr><th>No.</th><th>As at</th><th>Batches</th><th className="num">Sales</th><th className="num">Sale value LKR</th>{role !== 'sales' && <th className="num">Net LKR</th>}<th>Added</th></tr></thead>
               <tbody>{stmts.map((s) => (
                 <tr key={s.id}>
                   <td><Link to={`/merchant/s/${s.id}`}><strong>No. {s.id}</strong></Link></td>
                   <td>{fmtDate(s.as_at)}</td><td>{range(s)}</td>
-                  <td className="num">{s.drafts_in}</td><td className="num">{lkr(s.net_in)}</td>
+                  <td className="num">{s.drafts_in}</td><td className="num">{lkr(gross(s))}</td>{role !== 'sales' && <td className="num">{lkr(s.net_in)}</td>}
                   <td>{fmtDateTime(s.created_at)}<div className="muted small">{personName(s.creator)}</div></td>
                 </tr>
               ))}</tbody>
@@ -321,7 +337,9 @@ export function MerchantStatement() {
     <section className="wide">
       <Link to="/merchant" className="back">Merchant statements</Link>
       <div className="page-head"><h1>Merchant statement No. {s.id}</h1></div>
-      <p className="lede">As at {fmtDate(s.as_at)} · {plural(s.drafts_in, 'sale')}, net LKR {lkr(s.net_in)} · added {fmtDateTime(s.created_at)} by {personName(s.creator)}</p>
+      <p className="lede">As at {fmtDate(s.as_at)} · {plural(s.drafts_in, 'sale')}, {role === 'sales'
+        ? `LKR ${lkr(batches.reduce((a, x) => a + Number(x.gross ?? 0), 0))} paid by customers`
+        : `net LKR ${lkr(s.net_in)}`} · added {fmtDateTime(s.created_at)} by {personName(s.creator)}</p>
       {s.note && <p className="quote">{s.note}</p>}
       {saved && (
         <div className="facts ok-box">
