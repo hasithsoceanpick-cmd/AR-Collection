@@ -16,6 +16,8 @@ export default function TransferForm() {
   const [fresh, setFresh] = useState([]);
   const [customer, setCustomer] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [snapshot, setSnapshot] = useState([]);   // invoices already on the parked entry being edited
+  const [snapshotCustomer, setSnapshotCustomer] = useState(null);
   const [invoiceTotal, setInvoiceTotal] = useState(null);
   const [instructions, setInstructions] = useState('');
   const [amount, setAmount] = useState('');
@@ -60,7 +62,7 @@ export default function TransferForm() {
     db.from('collections').select('*').eq('id', editId).maybeSingle().then(({ data: c }) => {
       if (!c || c.status !== 'parked') { setError('Only a parked payment can be edited here.'); return; }
       setCustomer({ customer_no: c.customer_no, name: c.customer_name });
-      setDocs((c.settlement ?? []).map((x) => x.document_no)); setInstructions(c.settlement_instructions ?? '');
+      setSnapshot(c.settlement ?? []); setSnapshotCustomer(c.customer_no); setDocs((c.settlement ?? []).map((x) => x.document_no)); setInstructions(c.settlement_instructions ?? '');
       setAmount(Number(c.expected_amount).toFixed(2)); setAmountTouched(true); setExact(Math.round(Number(c.expected_amount) * 100) / 100);
       if (c.account_id) setAccountId(String(c.account_id));
       setMethod(c.pay_method ?? 'transfer'); setMethodTouched(true); setChequeNo(c.cheque_no ?? '');
@@ -150,6 +152,7 @@ export default function TransferForm() {
         {customer?.customer_no && (
           <div className="field"><span className="flabel">Invoices being settled</span>
             <InvoicePicker key={customer.customer_no} customerNo={customer.customer_no} selected={docs}
+              snapshot={editId && customer.customer_no === snapshotCustomer ? snapshot : []} collectionId={editId}
               onChange={(d, t) => { setDocs(d); setInvoiceTotal(d.length ? t : null); if (!amountTouched && d.length) setAmount(t.toFixed(2)); }} />
           </div>
         )}

@@ -221,6 +221,49 @@ export function CancelPanel({ c, onDone }) {
   );
 }
 
+// Sales — a receipt of theirs that was cancelled after it was sent: reopen it to correct it and send it again.
+export const canReopenCancelled = (c) => c.status === 'cancelled' && ['cheque', 'transfer', 'card'].includes(c.kind) && !c.handover_id
+  && Boolean(c.cancelled_from) && c.cancelled_from !== 'parked';
+const STEP_NAME = { submitted: 'waiting for a driver', assigned: 'with the driver to collect', collected: 'collected, on its way to finance', received: 'received by finance' };
+export function ReopenCancelledPanel({ c, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+  const navigate = useNavigate();
+  const { busy, error, run } = useAction(onDone);
+  const what = c.kind === 'cheque' ? 'collection' : c.kind === 'card' ? 'card payment' : c.pay_method === 'cheque' ? 'cheque deposit' : 'transfer';
+  const after = c.kind === 'transfer'
+    ? 'It comes back to you as a parked entry: correct it, link the bank line again and send it. Finance reviews it again.'
+    : c.kind === 'card'
+      ? 'It comes back to you as a parked card payment: correct it, set it off against its sale on the merchant statement again and send it. Finance reviews it again.'
+      : 'You correct the customer, invoices or instructions and send it; it goes back to the step it was at'
+        + (STEP_NAME[c.cancelled_from === 'rejected' ? c.rejected_from : c.cancelled_from] ? ` (${STEP_NAME[c.cancelled_from === 'rejected' ? c.rejected_from : c.cancelled_from]})` : '') + '.';
+  if (!open) return (
+    <div className="action quiet">
+      <button className="btn primary" onClick={() => setOpen(true)}>Reopen and correct</button>
+      <span className="hint">Cancelled by mistake, or fixable? Reopen this {what} and send it again.</span>
+    </div>
+  );
+  return (
+    <form className="action" onSubmit={(e) => {
+      e.preventDefault();
+      run(async () => {
+        const r = await rpc('cc_reopen_cancelled', { p_id: c.id, p_note: note });
+        if (r?.line_id) navigate(`/c/${c.id}?line=${r.line_id}`, { replace: true });
+      });
+    }}>
+      <h2>Reopen this {what}?</h2>
+      <p className="hint">{after} Its invoices are checked again: any that are no longer open, or that another receipt has covered since, are taken off and listed here.</p>
+      <label className="field"><span className="flabel">What changes (optional)</span>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Customer confirmed it is for RT-02150, not RT-02105" /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button className="btn primary" disabled={busy}>{busy ? 'Reopening…' : 'Reopen'}</button>
+        <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Keep it cancelled</button>
+      </div>
+    </form>
+  );
+}
+
 // Transfers — finance reviews: close, or send back to sales (unlinks the bank line)
 export function TransferReviewPanel({ c, line, onDone }) {
   const [note, setNote] = useState('');
@@ -536,11 +579,11 @@ export function ResubmitPanel({ c, cheques = [], onDone }) {
 
   return (
     <div className="action reject-box">
-      <h2>Sent back by finance: correct it and send it back</h2>
+      <h2>{c.reopened_at ? 'Reopened: correct it and send it again' : 'Sent back by finance: correct it and send it back'}</h2>
       <p className="quote">{c.reject_note}</p>
       {posted && <p className="hint">Finance reverses {posted} in Business Central; once you send this back it is exported again under a new number.</p>}
       {!open ? (
-        <div className="row"><button className="btn primary" onClick={() => setOpen(true)}>Reopen and correct</button></div>
+        <div className="row"><button className="btn primary" onClick={() => setOpen(true)}>{c.reopened_at ? 'Correct it' : 'Reopen and correct'}</button></div>
       ) : (
         <form className="stack" onSubmit={(e) => {
           e.preventDefault();
@@ -587,7 +630,7 @@ export function ResubmitPanel({ c, cheques = [], onDone }) {
           {cheques.length > 1 && <p className="hint">There are {cheques.length} cheques: after you send it, you'll be asked again which invoices each cheque pays.</p>}
           {error && <p className="error">{error}</p>}
           <div className="row">
-            <button className="btn primary" disabled={busy || !customer || (!docs.length && !instructions.trim())}>Send back to finance</button>
+            <button className="btn primary" disabled={busy || !customer || (!docs.length && !instructions.trim())}>{c.reopened_at ? 'Send it again' : 'Send back to finance'}</button>
             <button type="button" className="btn ghost" onClick={() => setOpen(false)}>Close</button>
           </div>
         </form>

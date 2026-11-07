@@ -13,7 +13,7 @@ import Reminders from '../components/Reminders';
 import ReceiptFiles from '../components/ReceiptFiles';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
-  RejectPanel, ResubmitPanel, REJECTABLE, ParkedMatchPanel, SendBackPanel, canSendBack,
+  RejectPanel, ResubmitPanel, REJECTABLE, ParkedMatchPanel, SendBackPanel, canSendBack, ReopenCancelledPanel, canReopenCancelled,
 } from './actions';
 import { useCardDraft, CardFacts, CardSetOffPanel, CardReviewPanel, CardReopenPanel } from './cardActions';
 
@@ -91,6 +91,7 @@ export default function Detail() {
   const canEditFiles = (isTransfer || isCard) && c.created_by === uid && ['parked', 'review', 'relink', 'rejected'].includes(c.status);
   const sendBack = isFinance && canSendBack(c);
   const shownAmount = c.collected_amount ?? c.expected_amount;
+  const reopenEv = c.reopened_at ? [...events].reverse().find((e) => e.action === 'reopened by Sales') : null;
 
   return (
     <section className="detail">
@@ -118,6 +119,10 @@ export default function Detail() {
 
       {c.notes?.startsWith('Practice scenario') && <div className="notice practice-notice">Practice scenario: real customer and real open invoices, made up to show this stage. Try the next step yourself.</div>}
       {c.status === 'cancelled' && <div className="notice">Cancelled {fmtDate(c.cancelled_at)}: {c.cancel_reason}</div>}
+      {c.status === 'cancelled' && role === 'sales' && isCreator && canReopenCancelled(c) && <ReopenCancelledPanel c={c} onDone={load} />}
+      {c.reopened_at && ['parked', 'rejected'].includes(c.status) && reopenEv && (
+        <div className="notice">Reopened {fmtDate(c.reopened_at)} by {personName(reopenEv.actor)}. {reopenEv.note}</div>
+      )}
       {c.replaces_id && <div className="notice">This replaces returned collection <Link to={`/c/${c.replaces_id}`}>{ref(c.replaces_id)}</Link>.</div>}
       {c.status === 'returned' && (
         <div className="notice danger-notice">
@@ -129,7 +134,8 @@ export default function Detail() {
       )}
       {c.status === 'relink' && <div className="notice">This transfer isn't linked to a bank line.</div>}
       {c.status === 'rejected' && !(role === 'sales' && isCreator) && (
-        <div className="notice danger-notice">Sent back to Sales by finance on {fmtDate(c.rejected_at)}: {c.reject_note}. Waiting for Sales to correct it and send it back.
+        <div className="notice danger-notice">{c.reopened_at ? <>Reopened by Sales on {fmtDate(c.reopened_at)} after it was cancelled. Waiting for Sales to correct it and send it again.</>
+          : <>Sent back to Sales by finance on {fmtDate(c.rejected_at)}: {c.reject_note}. Waiting for Sales to correct it and send it back.</>}
           {c.replaces_doc && <> Reverse <strong>{c.replaces_doc}</strong> in Business Central; the corrected receipt is exported under a new number.</>}</div>
       )}
       {c.status === 'rejected' && role === 'sales' && isCreator && <ResubmitPanel c={c} cheques={cheques} onDone={load} />}
