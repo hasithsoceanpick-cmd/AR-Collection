@@ -5,6 +5,7 @@ import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { parseBankLedger, parseDetailedCustLedger, fetchAll } from '../lib/bcimport';
 import { useAuth } from '../lib/auth';
 import { Renumber, NumberEditor } from '../components/DocNumbers';
+import ReopenDoc from '../components/ReopenDoc';
 
 const STATUS = {
   posted: { label: 'Posted', cls: 'ok' },
@@ -41,13 +42,14 @@ function PostAnyway({ d, onDone }) {
 }
 
 function Upload({ title, hint, parse, fn, onDone }) {
-  const [busy, setBusy] = useState(''); const [msg, setMsg] = useState(''); const [error, setError] = useState('');
+  const [busy, setBusy] = useState(''); const [msg, setMsg] = useState(''); const [error, setError] = useState(''); const [warn, setWarn] = useState('');
   const go = async (file) => {
     if (!file) return;
-    setError(''); setMsg('');
+    setError(''); setMsg(''); setWarn('');
     try {
       setBusy('Reading the file…');
       const rows = await parse(file);
+      if (rows.warning) setWarn(rows.warning);
       let added = 0;
       for (let i = 0; i < rows.length; i += CHUNK) {
         setBusy(`Uploading ${Math.min(i + CHUNK, rows.length).toLocaleString()} of ${rows.length.toLocaleString()}…`);
@@ -64,12 +66,14 @@ function Upload({ title, hint, parse, fn, onDone }) {
       <p className="hint">{hint}</p>
       <label className="btn">{busy || 'Choose the BC export (.xlsx)'}<input type="file" accept=".xlsx,.xls,.csv" hidden disabled={Boolean(busy)} onChange={(e) => { go(e.target.files[0]); e.target.value = ''; }} /></label>
       {msg && <p className="ok-text">{msg}</p>}
+      {warn && <p className="warn-text">{warn}</p>}
       {error && <p className="error">{error}</p>}
     </div>
   );
 }
 
-// Documents of receipts finance sent back to Sales: reverse each in BC; the corrected receipt gets a new number.
+// Documents of receipts finance sent back to Sales (reverse each in BC; the corrected receipt gets a new number),
+// and documents a Finance Admin reopened because BC doesn't have them (exported again under a new number).
 const REV = {
   to_reverse: { label: 'Reverse it in BC', cls: 'bad', hint: 'BC still shows it posted.' },
   reversed: { label: 'Reversed in BC', cls: 'ok', hint: '' },
@@ -78,20 +82,25 @@ const REV = {
 function Reversals({ rows }) {
   if (!rows.length) return null;
   const open = rows.filter((r) => r.state === 'to_reverse');
+  const reopened = rows.filter((r) => r.reopened).length;
   return (
     <details className="facts reversals" open={open.length > 0}>
-      <summary><strong>Sent back to Sales: {open.length ? `${open.length} to reverse in BC` : 'all reversed'}</strong> ({rows.length})</summary>
+      <summary><strong>{reopened === rows.length ? 'Reopened' : reopened ? 'Sent back to Sales or reopened' : 'Sent back to Sales'}: {open.length ? `${open.length} to check in BC` : 'nothing to do in BC'}</strong> ({rows.length})</summary>
       <p className="hint">When finance sends a finished receipt back to Sales, its document is kept here as reversed. Reverse it in Business Central;
-        the corrected receipt is exported under a new number with &quot;Replaces …&quot; in its Comment. Upload the ledgers again to see BC&apos;s side.</p>
+        the corrected receipt is exported under a new number with &quot;Replaces …&quot; in its Comment. A document a Finance Admin reopened (BC doesn&apos;t have it)
+        is listed too: what it covered is exported again under a new number. Upload the ledgers again to see BC&apos;s side.</p>
       <div className="table-wrap flat"><table className="table">
-        <thead><tr><th>Document</th><th>Receipts</th><th className="num">LKR</th><th>Sent back</th><th>BC</th><th>Replaced by</th></tr></thead>
+        <thead><tr><th>Document</th><th>Receipts</th><th className="num">LKR</th><th>Sent back / reopened</th><th>BC</th><th>Replaced by</th></tr></thead>
         <tbody>{rows.map((r) => (
           <tr key={r.id}>
             <td><strong>{r.doc_no}</strong><div className="muted small">{fmtDate(r.posting_date)}</div></td>
-            <td>{r.receipts.map((x, i) => <span key={x.id}>{i > 0 && ', '}<Link to={`/c/${x.id}`}>{x.ref}</Link> {x.customer}</span>)}</td>
+            <td>{r.item && <div>{r.kind === 'card batch' ? `Card batch ${r.item}` : r.item}</div>}{r.receipts.map((x, i) => <span key={x.id}>{i > 0 && ', '}<Link to={`/c/${x.id}`}>{x.ref}</Link> {x.customer}</span>)}</td>
             <td className="num">{lkr(r.total)}</td>
             <td className="small">{fmtDateTime(r.reversed_at)} by {r.reversed_by}<div className="muted">{r.note}</div></td>
-            <td><span className={`pill ${REV[r.state].cls}`}>{REV[r.state].label}</span>{REV[r.state].hint && <div className="muted small">{REV[r.state].hint}</div>}</td>
+            <td>{r.reopened ? (r.state === 'to_reverse'
+              ? <><span className="pill bad">BC ledger shows it</span><div className="muted small">A newer upload still has live entries under it: check BC, so it isn&apos;t posted twice.</div></>
+              : <span className="pill muted">Not in BC</span>)
+              : <><span className={`pill ${REV[r.state].cls}`}>{REV[r.state].label}</span>{REV[r.state].hint && <div className="muted small">{REV[r.state].hint}</div>}</>}</td>
             <td>{r.replaced_by ?? <span className="muted">not exported yet</span>}</td>
           </tr>
         ))}</tbody>
@@ -109,6 +118,7 @@ export default function BcCheck() {
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
   const [reversals, setReversals] = useState([]);
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -135,6 +145,7 @@ export default function BcCheck() {
       <div className="page-head"><h1>BC check</h1></div>
       <p className="lede">After posting in Business Central, upload these two exports. Each exported document is checked: the bank side (right account, date and total) and the customer side (right customer, invoices applied exactly as Sales instructed).</p>
       {error && <p className="error">{error}</p>}
+      {notice && <p className="ok-box">{notice} <Link to="/bc-export">Export to BC</Link></p>}
       {role === 'finance' && (
         <div className="ov-flags">
           <Upload title="1. Bank Account Ledger Entries" fn="cc_import_bank_ledger" parse={parseBankLedger} onDone={load}
@@ -178,6 +189,7 @@ export default function BcCheck() {
                         <div>Accepted as posted by {people[d.accepted_by] ?? 'finance'} on {fmtDateTime(d.accepted_at)}: <em>{d.accept_note}</em></div>
                         {problems.length > 0 && <ul className="plain muted">{problems.map((p) => <li key={p}>BC check: {p}</li>)}</ul>}
                         {role === 'finance' && <button className="link" onClick={async () => { await rpc('cc_bc_unaccept', { p_doc_id: d.id }); load(); }}>Undo</button>}
+                        <div><ReopenDoc docNo={d.doc_no} onDone={(m) => { setNotice(m); return load(); }} /></div>
                       </>
                     ) : (
                       <>
@@ -188,6 +200,7 @@ export default function BcCheck() {
                         {problems.length > 0 && <ul className="plain">{problems.map((p) => <li key={p} className="error">{p}</li>)}</ul>}
                         {d.post_status === 'posted_diff' && <div className="muted">Correct it in BC, then upload the ledgers again.</div>}
                         {role === 'finance' && needs(d) && <PostAnyway d={d} onDone={load} />}
+                        {d.post_status !== 'exported' && <ReopenDoc docNo={d.doc_no} onDone={(m) => { setNotice(m); return load(); }} />}
                       </>
                     )}
                   </td>

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { db, rpc, uploadMine } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, ref, fmtDate, fmtDateTime, personName, todayISO } from '../lib/format';
+import ReopenDoc from '../components/ReopenDoc';
 import { STATUS } from '../lib/workflow';
 import { checkStatement, COMMISSION_RATE } from '../lib/merchant';
 import { compressImage } from '../lib/image';
@@ -101,7 +102,8 @@ function BatchCard({ b, open, onToggle, parked, onChanged, focus }) {
             <dt>Sales (what customers paid)</dt><dd>LKR {lkr(b.gross)}</dd>
             {showNet && <><dt>HNB commission</dt><dd>LKR {lkr(b.commission)}</dd>
             <dt>Paid into Amana</dt><dd>{b.line_id ? <>LKR {lkr(b.bank_credit)} on {fmtDate(b.bank_date)}, ref {b.bank_ref}</> : <span className="warn-text">No Amana credit of LKR {lkr(b.net)} matched yet</span>}</dd></>}
-            <dt>Business Central</dt><dd>{b.doc_no ? <>{b.doc_no}: {b.post_status === 'posted' ? 'posted' : b.post_status === 'posted_diff' ? 'posted with differences (see BC check)' : `exported ${b.export_count}×, not confirmed yet`}</> : <span className="muted">Not exported</span>}</dd>
+            <dt>Business Central</dt><dd>{b.doc_no ? <>{b.doc_no}: {b.post_status === 'posted' ? 'posted' : b.post_status === 'posted_diff' ? 'posted with differences (see BC check)' : `exported ${b.export_count}×, not confirmed yet`}</> : <span className="muted">Not exported</span>}
+              {b.doc_no && b.post_status !== 'exported' && <div><ReopenDoc docNo={b.doc_no} onDone={onChanged} /></div>}</dd>
             <dt>On statement{(b.statements ?? []).length === 1 ? '' : 's'}</dt><dd>{(b.statements ?? []).map((s, i) => <span key={s}>{i > 0 && ', '}<Link to={`/merchant/s/${s}`}>No. {s}</Link></span>)}</dd>
           </dl>
           {error && <p className="error">{error}</p>}

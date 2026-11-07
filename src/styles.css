@@ -943,3 +943,23 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
   .show-sm { display: inline; }
   .ph-table th, .ph-table td { padding-left: 0.4rem; padding-right: 0.4rem; }
 }
+
+/* Reopen a document BC doesn't have */
+.reopen { display: grid; gap: 0.6rem; margin-top: 0.5rem; padding: 0.8rem; border: 1px solid var(--rule); border-radius: 8px; background: #FFFCF5; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 900px) { .bc-check .reopen, td .reopen { min-width: 26rem; } }
+.reopen h3 { margin: 0; font-size: 1rem; }
+.reopen-why ul { margin: 0.3rem 0; }
+.reopen-opt { border: 0; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
+.reopen-opt label { display: flex; gap: 0.5rem; align-items: flex-start; font-weight: 400; }
+.reopen-opt input[type="radio"] { width: 1rem; height: 1rem; min-width: 0; min-height: 0; padding: 0; margin: 0.2rem 0 0; flex: none; }
+.reopen .table-wrap { max-width: 100%; overflow-x: auto; }
+.reopen textarea { width: 100%; }
+/* Finance Admins on a phone: the header (Live/Demo, View as, bell) fits the screen */
+@media (max-width: 420px) {
+  .topbar { gap: 0.5rem; padding-left: 0.75rem; padding-right: 0.75rem; }
+  .topbar > * { min-width: 0; }
+  .viewas select { max-width: 8.5rem; text-overflow: ellipsis; }
+  .modeswitch button { padding-left: 0.55rem; padding-right: 0.55rem; }
+}
+.reopen td, .reopen th { overflow-wrap: normal; }
+.reopen .num { white-space: nowrap; }

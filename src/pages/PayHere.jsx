@@ -4,6 +4,7 @@ import { rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { readPayHere } from '../lib/payhere';
+import ReopenDoc from '../components/ReopenDoc';
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const n = (x) => Number(x ?? 0);
@@ -237,7 +238,8 @@ function PayoutCard({ o, open, onToggle, lines, onChanged, focus }) {
             <dt>Paid into Sampath</dt><dd>{o.line ? <>LKR {lkr(o.line.credit)} on {fmtDate(o.line.txn_date)} · <span className="mono">{o.line.narration}</span></>
               : <span className="warn-text">No Sampath credit of LKR {lkr(o.net)} paired yet{o.bank_ref ? ` (PayHere ref ${o.bank_ref})` : ''}</span>}</dd>
             {missing && <><dt>Payments</dt><dd className="error">PayHere paid out LKR {lkr(o.amount)}, the payments in the app add up to LKR {lkr(o.payments_net)}: upload a Payments export that covers this payout.</dd></>}
-            <dt>Business Central</dt><dd>{o.doc_no ? <>{o.doc_no}: {o.post_status === 'posted' ? 'posted' : o.post_status === 'posted_diff' ? 'posted with differences (see BC check)' : `exported ${o.export_count}×, not confirmed yet`}</>
+            <dt>Business Central</dt><dd>{o.doc_no ? <>{o.doc_no}: {o.post_status === 'posted' ? 'posted' : o.post_status === 'posted_diff' ? 'posted with differences (see BC check)' : `exported ${o.export_count}×, not confirmed yet`}
+              {o.post_status !== 'exported' && <div><ReopenDoc docNo={o.doc_no} onDone={onChanged} /></div>}</>
               : st.label === 'Ready for BC' ? <Link to="/bc-export">Ready: Export to BC</Link> : <span className="muted">Not exported</span>}</dd>
           </dl>
           {error && <p className="error">{error}</p>}

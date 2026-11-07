@@ -192,6 +192,8 @@ export async function parseBankLedger(file) {
     });
   }
   if (!out.length) throw new Error('The file has the right columns but no entries in it.');
+  // Without the Reversed column, entries reversed in BC look posted and keep documents "posted" in the app.
+  if (h.map.reversed === undefined) out.warning = 'This export has no Reversed column, so entries reversed in BC count as posted. In BC, add the Reversed column to the page (Personalize) and export again.';
   return out;
 }
 
