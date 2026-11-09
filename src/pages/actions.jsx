@@ -221,6 +221,26 @@ export function CancelPanel({ c, onDone }) {
   );
 }
 
+// Sales — a receipt finance sent back can be deleted (and recorded again) unless the money is already in hand:
+// transfers, cheques the customer deposited and card payments; cheque collections not collected yet.
+export const canDeleteSentBack = (c) => c.status === 'rejected' && c.kind !== 'cash' && !c.handover_id
+  && (['transfer', 'card'].includes(c.kind) || ['submitted', 'assigned'].includes(c.rejected_from));
+
+// Sales — after deleting a receipt that was sent back: where to record it again.
+export function RecordAgain({ c }) {
+  const to = c.kind === 'transfer' ? (c.cancelled_line_id ? `/transfer?line=${c.cancelled_line_id}` : '/transfer')
+    : c.kind === 'card' ? '/card' : '/new';
+  const what = c.kind === 'transfer' ? (c.pay_method === 'cheque' ? 'cheque deposit' : 'transfer') : c.kind === 'card' ? 'card payment' : 'collection';
+  return (
+    <div className="action quiet">
+      <Link className="btn primary" to={to}>Record the {what} again</Link>
+      <span className="hint">{c.kind === 'transfer' ? 'Its bank line is free again: record it against the right customer.'
+        : c.kind === 'card' ? 'Its sale on the merchant statement is free again: record the card payment against the right customer and set it off.'
+          : 'Record the collection again with the right customer.'}</span>
+    </div>
+  );
+}
+
 // Sales — a receipt of theirs that was cancelled after it was sent: reopen it to correct it and send it again.
 export const canReopenCancelled = (c) => c.status === 'cancelled' && ['cheque', 'transfer', 'card'].includes(c.kind) && !c.handover_id
   && Boolean(c.cancelled_from) && c.cancelled_from !== 'parked';
@@ -550,6 +570,8 @@ export function SendBackPanel({ c, onDone, startOpen = false, onCancel }) {
 // Customer, invoices and instructions; the expected amount (cheque, before collection) or the amount (cash).
 export function ResubmitPanel({ c, cheques = [], onDone }) {
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [why, setWhy] = useState('');
   const [customers, setCustomers] = useState(null);
   const [customer, setCustomer] = useState(c.customer_no || c.customer_name ? { customer_no: c.customer_no ?? null, name: c.customer_name } : null);
   const [docs, setDocs] = useState((c.settlement ?? []).map((s) => s.document_no));
@@ -579,12 +601,33 @@ export function ResubmitPanel({ c, cheques = [], onDone }) {
 
   return (
     <div className="action reject-box">
-      <h2>{c.reopened_at ? 'Reopened: correct it and send it again' : 'Sent back by finance: correct it and send it back'}</h2>
+      <h2>{c.reopened_at ? 'Reopened: correct it and send it again' : canDeleteSentBack(c) ? 'Sent back by finance: correct it, or delete it' : 'Sent back by finance: correct it and send it back'}</h2>
       <p className="quote">{c.reject_note}</p>
       {posted && <p className="hint">Finance reverses {posted} in Business Central; once you send this back it is exported again under a new number.</p>}
-      {!open ? (
-        <div className="row"><button className="btn primary" onClick={() => setOpen(true)}>{c.reopened_at ? 'Correct it' : 'Reopen and correct'}</button></div>
-      ) : (
+      {!open && !deleting && (
+        <div className="row">
+          <button className="btn primary" onClick={() => setOpen(true)}>{c.reopened_at ? 'Correct it' : 'Correct and send back'}</button>
+          {canDeleteSentBack(c) && <button className="btn ghost danger-text" onClick={() => setDeleting(true)}>Delete it</button>}
+        </div>
+      )}
+      {!open && !deleting && !canDeleteSentBack(c) && (
+        <p className="hint small">It can&apos;t be deleted: {c.kind === 'cheque' ? 'the cheque has already been collected' : c.kind === 'cash' ? 'finance has counted the cash' : 'the money is already in hand'}.
+          {' '}Correct the customer and invoices instead.</p>
+      )}
+      {deleting && (
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); run(() => rpc('cc_cancel', { p_id: c.id, p_reason: why })); }}>
+          <p className="hint">{c.kind === 'transfer' ? 'Its bank line is freed' : c.kind === 'card' ? 'Its sale on the merchant statement is freed' : c.driver_id ? 'The driver is told' : 'Nothing has been collected yet'}
+            {' '}and finance is told. You can then record it again against the right customer.</p>
+          <label className="field"><span className="flabel">Why delete it?</span>
+            <input required value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Recorded against the wrong customer; recording it again for the right one" /></label>
+          {error && <p className="error">{error}</p>}
+          <div className="row">
+            <button className="btn danger" disabled={busy || !why.trim()}>{busy ? 'Deleting…' : 'Delete it'}</button>
+            <button type="button" className="btn ghost" onClick={() => setDeleting(false)}>Keep it</button>
+          </div>
+        </form>
+      )}
+      {open && (
         <form className="stack" onSubmit={(e) => {
           e.preventDefault();
           run(() => rpc('cc_resubmit', { p_id: c.id, p: {

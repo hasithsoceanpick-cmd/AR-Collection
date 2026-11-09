@@ -13,7 +13,7 @@ import Reminders from '../components/Reminders';
 import ReceiptFiles from '../components/ReceiptFiles';
 import {
   AssignPanel, CollectPanel, ReceivePanel, SplitPanel, CancelPanel, TransferReviewPanel, RelinkPanel, ReopenPanel, ReturnChequePanel,
-  RejectPanel, ResubmitPanel, REJECTABLE, ParkedMatchPanel, SendBackPanel, canSendBack, ReopenCancelledPanel, canReopenCancelled,
+  RejectPanel, ResubmitPanel, REJECTABLE, ParkedMatchPanel, SendBackPanel, canSendBack, ReopenCancelledPanel, canReopenCancelled, RecordAgain,
 } from './actions';
 import { useCardDraft, CardFacts, CardSetOffPanel, CardReviewPanel, CardReopenPanel } from './cardActions';
 
@@ -84,7 +84,7 @@ export default function Detail() {
   const canEdit = isCheque && ((role === 'sales' && isCreator && c.status === 'submitted')
     || (isFinance && ['submitted', 'assigned'].includes(c.status)));
   const canCancel = (isFinance && ['submitted', 'assigned', 'collected', 'received', 'review', 'relink', 'rejected'].includes(c.status))
-    || (role === 'sales' && isCreator && (['submitted', 'review', 'relink', 'parked'].includes(c.status) || (c.status === 'rejected' && c.rejected_from === 'submitted')));
+    || (role === 'sales' && isCreator && ['submitted', 'review', 'relink', 'parked'].includes(c.status));   // sent back: delete from the correction panel
   const canReject = isFinance && isCheque && REJECTABLE.includes(c.status);
   const canReturn = isFinance && isCheque && ['deposited', 'closed'].includes(c.status) && cheques.some((q) => !q.returned_at);
   const photosGone = Boolean(c.photos_deleted_at);
@@ -119,6 +119,7 @@ export default function Detail() {
 
       {c.notes?.startsWith('Practice scenario') && <div className="notice practice-notice">Practice scenario: real customer and real open invoices, made up to show this stage. Try the next step yourself.</div>}
       {c.status === 'cancelled' && <div className="notice">Cancelled {fmtDate(c.cancelled_at)}: {c.cancel_reason}</div>}
+      {c.status === 'cancelled' && role === 'sales' && isCreator && c.cancelled_from === 'rejected' && c.cancelled_by === uid && <RecordAgain c={c} />}
       {c.status === 'cancelled' && role === 'sales' && isCreator && canReopenCancelled(c) && <ReopenCancelledPanel c={c} onDone={load} />}
       {c.reopened_at && ['parked', 'rejected'].includes(c.status) && reopenEv && (
         <div className="notice">Reopened {fmtDate(c.reopened_at)} by {personName(reopenEv.actor)}. {reopenEv.note}</div>
