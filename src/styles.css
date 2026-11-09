@@ -938,6 +938,33 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .ph-pick input[type="search"] { width: 100%; max-width: 32rem; }
 .ph-acts { margin-top: 0.35rem; gap: 0.5rem; align-items: center; }
 .ph-table td { vertical-align: top; }
+/* Where a PayHere payment goes: Oceanpick invoices and Round Island */
+.ph-parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.ph-parts li { display: flex; justify-content: space-between; gap: 0.75rem; }
+.ph-parts .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ph-note { font-style: italic; }
+.ph-settle { display: grid; gap: 0.75rem; padding: 0.4rem 0; max-width: 46rem; min-width: 0; }
+.ph-block { display: grid; gap: 0.5rem; padding: 0.75rem 0.85rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); min-width: 0; }
+.ph-block h4 { margin: 0; font-size: 0.9375rem; }
+.ph-cust { gap: 0.5rem 0.9rem; margin: 0; }
+.ph-custs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ph-custs .btn { text-align: left; font-weight: 400; }
+.ph-invs { max-height: 320px; }
+.ph-invrow { display: flex; align-items: center; gap: 0.5rem; padding-right: 0.8rem; }
+.ph-invrow label { flex: 1; min-width: 0; grid-template-columns: auto 1fr; }
+.ph-settle .table input, .ph-settle input.ph-amt, .table .ph-settle input.ph-amt { width: 8.5rem; min-width: 0; text-align: right; }
+.ph-settle input.ph-ref, .table .ph-settle input.ph-ref { width: 10rem; min-width: 0; }
+.ph-settle .ph-pick input[type="search"], .table .ph-settle input[type="search"] { min-width: 0; }
+.ph-settle .field.inline span { white-space: nowrap; }
+.ph-line { gap: 0.5rem 1rem; }
+.ph-inline { padding: 0 0.8rem 0.5rem 2.8rem; }
+.ph-sum { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; margin: 0; padding: 0.6rem 0.85rem; border-radius: 8px; background: #F7FAF7; font-variant-numeric: tabular-nums; }
+.ph-sum .ok-text, .ph-sum .error { font-weight: 700; }
+@media (max-width: 640px) {
+  .ph-settle .field.inline { flex-wrap: wrap; }
+  .ph-settle .field.inline span { white-space: normal; }
+  .ph-inline { padding-left: 0.8rem; }
+}
 .show-sm { display: none; }
 @media (max-width: 640px) {
   .show-sm { display: inline; }

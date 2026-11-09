@@ -19,7 +19,8 @@ const ISSUE = {
   no_bank_line: { text: 'No Amana credit matched to this batch yet', block: true },
   no_payout_line: { text: 'No Sampath credit paired with this payout yet (PayHere page)', block: true },
   payments_open: { text: 'PayHere payments with no invoice yet (PayHere page)', block: true },
-  payments_unconfirmed: { text: 'PayHere matches waiting for your confirmation (PayHere page)', block: true },
+  payments_unconfirmed: { text: "PayHere matches or Sales' splits waiting for your confirmation (PayHere page)", block: true },
+  split_mismatch: { text: "A PayHere payment's split doesn't add up to the payment (PayHere page)", block: true },
   payments_missing: { text: "Payments of this payout aren't in the app: upload a PayHere Payments export that covers it", block: true },
   invoice_gone: { text: 'An invoice on this payout is no longer open in the customer ledger (already settled?)', block: true },
   total_mismatch: { text: "The journal doesn't add up to the bank credit", block: true },
@@ -164,7 +165,7 @@ export default function BcExport() {
     <section className="wide">
       <div className="page-head"><h1>Export to BC</h1></div>
       <p className="lede">Closed receipts matched to a bank line (one BAKRC number per bank line, the bank as balancing account), HNB card batches (one BAKRC per batch: customers at the full card amount, the 3% commission to G/L 204003, Amana as balancing account),
-        PayHere payouts (one BAKRC per payout: customers at the full amount, the PayHere fee to G/L 204003, Sampath 590 as balancing account),
+        PayHere payouts (one BAKRC per payout: customers applied to their invoices, Round Island parts to G/L 102030 RI Current Account, the PayHere fee to G/L 204003, Sampath 590 as balancing account),
         and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. A document keeps its number when exported again; if BC posted it under another number, use Change number so the app matches BC.</p>
       {error && <p className="error">{error}</p>}
 

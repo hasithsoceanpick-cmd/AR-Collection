@@ -10,12 +10,15 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const n = (x) => Number(x ?? 0);
 const same = (a, b) => Math.abs(n(a) - n(b)) < 0.005;
 const day = (ts) => (ts ? String(ts).slice(0, 10) : null);
+const r2 = (x) => Math.round(n(x) * 100) / 100;
+// Said where it goes: one invoice, a customer, or a split (Oceanpick invoices / Round Island).
+const isMatched = (p) => p.matched ?? Boolean(p.customer_no);
 
 // Where a payout stands, for its stamp.
 export function payoutState(o) {
   const pays = o.payments ?? [];
-  const open = pays.filter((p) => !p.customer_no).length;
-  const unconf = pays.filter((p) => p.customer_no && !p.confirmed).length;
+  const open = pays.filter((p) => !isMatched(p)).length;
+  const unconf = pays.filter((p) => isMatched(p) && !p.confirmed).length;
   if (o.post_status === 'posted') return { label: 'Posted in BC', tone: 'green' };
   if (o.post_status === 'posted_diff') return { label: 'BC differs', tone: 'red' };
   if (o.doc_no) return { label: 'Exported to BC', tone: 'blue' };
@@ -36,12 +39,238 @@ function howText(p) {
   return '';
 }
 
+// Where a payment goes: its split, or its one invoice / customer.
+export function WhereItGoes({ p }) {
+  const parts = p.parts ?? [];
+  if (parts.length) return (
+    <ul className="ph-parts">
+      {parts.map((x) => (
+        <li key={x.line_no}>
+          <span>{x.kind === 'ri' ? <><strong>Round Island</strong> {x.ri_ref} <span className="muted small">(RI Current Account)</span></>
+            : x.kind === 'unapplied' ? <>On {x.account_name ?? x.customer_no} <span className="muted small">({x.customer_no})</span>, unapplied</>
+            : <><strong>{x.document_no}</strong> · {x.account_name ?? x.customer_no} <span className="muted small">({x.customer_no})</span></>}</span>
+          <span className="num">{lkr(x.amount)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+  if (!p.customer_no) return <span className="error small">Not said yet</span>;
+  return <><strong>{p.document_no ?? 'Unapplied'}</strong> · {p.account_name ?? p.customer_no} <span className="muted small">({p.customer_no})</span></>;
+}
+
+// Who said so, and whether finance has confirmed it.
+function MatchNote({ p, sales = false }) {
+  if ((p.parts ?? []).length) {
+    const who = p.match_how === 'sales' ? `${p.settled_by ?? 'Sales'}${sales ? '' : ' (Sales)'}` : (p.settled_by ?? 'finance');
+    return (
+      <div className={`small ${p.confirmed || p.exported ? 'muted' : 'warn-text'}`}>
+        {p.exported ? `Split by ${who} · in the BC journal`
+          : p.confirmed ? `Split by ${who}${p.match_how === 'sales' && p.confirmed_by ? ` · confirmed by ${p.confirmed_by}` : ''}`
+          : `Split by ${who} on ${fmtDate(day(p.settled_at))}: ${sales ? 'waiting for finance' : 'confirm it'}`}
+        {p.settle_note && <div className="muted ph-note">“{p.settle_note}”</div>}
+      </div>
+    );
+  }
+  if (!p.customer_no) return null;
+  if (sales) return <div className={`small ${p.confirmed ? 'muted' : 'warn-text'}`}>{p.exported ? 'In the BC journal · ' : ''}{p.confirmed ? '' : 'The app suggests: '}{howText(p)}</div>;
+  return <div className={`small ${p.confirmed ? 'muted' : 'warn-text'}`}>{p.confirmed ? '' : 'Suggested: '}{howText(p)}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// Sales (or finance) say where a payment goes: Oceanpick invoices of a customer,
+// the Round Island part (posted to the RI Current Account), and anything left on the customer.
+function SettlePanel({ p, onDone, onCancel }) {
+  const { role } = useAuth();
+  const fin = role === 'finance';
+  const parts = p.parts ?? [];
+  const firstCust = parts.find((x) => x.customer_no) ?? (p.customer_no ? { customer_no: p.customer_no, account_name: p.account_name } : null);
+  const [cust, setCust] = useState(firstCust ? { customer_no: firstCust.customer_no, name: firstCust.account_name ?? firstCust.customer_no } : null);
+  const [picking, setPicking] = useState(!firstCust);
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState(null);
+  const [invoices, setInvoices] = useState(null);
+  const [amt, setAmt] = useState(() => {
+    const m = {};
+    for (const x of parts) if (x.kind === 'invoice') m[x.document_no] = String(x.amount);
+    if (!parts.length && p.document_no) m[p.document_no] = String(r2(Math.min(n(p.gross), n(p.invoice?.free ?? p.gross))));
+    return m;
+  });
+  const riParts = parts.filter((x) => x.kind === 'ri');
+  const [ri, setRi] = useState(riParts.length ? String(r2(riParts.reduce((a, x) => a + n(x.amount), 0))) : '');
+  const [riRef, setRiRef] = useState(riParts.map((x) => x.ri_ref).join('/'));
+  const restPart = parts.find((x) => x.kind === 'unapplied');
+  const [rest, setRest] = useState(restPart ? String(restPart.amount) : '');
+  const [note, setNote] = useState(p.settle_note ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!picking) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      rpc('cc_payhere_candidates', { p_payment_id: p.id, p_q: q.trim() || null })
+        .then((d) => { if (live) { setFound(d); setError(''); } }).catch((e) => live && setError(e.message));
+    }, q ? 350 : 0);
+    return () => { live = false; clearTimeout(t); };
+  }, [p.id, q, picking]);
+  const custNo = cust?.customer_no;
+  useEffect(() => {
+    if (!custNo) { setInvoices(null); return undefined; }
+    let live = true;
+    setInvoices(null);
+    rpc('cc_payhere_invoices', { p_payment_id: p.id, p_customer_no: custNo })
+      .then((d) => live && setInvoices(d ?? [])).catch((e) => live && setError(e.message));
+    return () => { live = false; };
+  }, [p.id, custNo]);
+
+  const invTotal = r2(Object.values(amt).reduce((a, v) => a + n(v), 0));
+  const left = r2(n(p.gross) - invTotal - n(ri) - n(rest));
+  const byDoc = new Map((invoices ?? []).map((i) => [i.document_no, i]));
+  const gone = Object.keys(amt).filter((d) => invoices && !byDoc.has(d));
+  const over = Object.entries(amt).filter(([d, v]) => byDoc.has(d) && n(v) > n(byDoc.get(d).free) + 0.004).map(([d]) => d);
+  const zero = Object.values(amt).some((v) => n(v) <= 0);
+  const needRef = n(ri) > 0 && !riRef.trim();
+  const needCust = (invTotal > 0 || n(rest) > 0) && !cust;
+  const canSave = !busy && Math.abs(left) < 0.005 && !needRef && !needCust && !zero && over.length === 0 && gone.length === 0 && n(ri) >= 0 && n(rest) >= 0;
+
+  const opts = [];
+  const seen = new Set();
+  for (const i of found?.invoices ?? []) {
+    if (seen.has(i.customer_no)) continue;
+    seen.add(i.customer_no);
+    opts.push({ customer_no: i.customer_no, name: i.customer_name,
+      why: i.by_order ? `Order ${p.order_id} is on ${i.document_no}` : i.by_name ? 'Same name' : i.same_amount ? `${i.document_no} is LKR ${lkr(i.remaining_amount)}` : '' });
+  }
+  for (const c of found?.customers ?? []) if (!seen.has(c.customer_no)) { seen.add(c.customer_no); opts.push({ ...c, why: 'Same name' }); }
+
+  const pickCust = (c) => { setCust({ customer_no: c.customer_no, name: c.name }); setPicking(false); setQ(''); if (c.customer_no !== custNo) { setAmt({}); setRest(''); } };
+  const toggle = (i) => setAmt((m) => {
+    const x = { ...m };
+    if (i.document_no in x) delete x[i.document_no];
+    else x[i.document_no] = String(r2(Math.max(0, Math.min(n(i.free), left))));
+    return x;
+  });
+  const allToRi = () => { setAmt({}); setRest(''); setRi(String(n(p.gross))); };
+
+  async function save() {
+    setBusy(true); setError('');
+    const order = (invoices ?? []).map((i) => i.document_no).filter((d) => d in amt);
+    const out = [
+      ...order.map((d) => ({ kind: 'invoice', customer_no: custNo, document_no: d, amount: r2(amt[d]) })),
+      ...(n(ri) > 0 ? [{ kind: 'ri', ri_ref: riRef.trim(), amount: r2(ri) }] : []),
+      ...(n(rest) > 0 ? [{ kind: 'unapplied', customer_no: custNo, amount: r2(rest) }] : []),
+    ];
+    try { await rpc('cc_payhere_settle', { p_payment_id: p.id, p_parts: out, p_note: note.trim() || null }); await onDone(); }
+    catch (e) { setError(e.message); setBusy(false); }
+  }
+
+  return (
+    <div className="ph-settle">
+      <p className="hint">{p.customer_name} paid <strong>LKR {lkr(p.gross)}</strong> for order {p.order_id ?? '—'} on {fmtDate(day(p.paid_at))}.
+        Say what is for Oceanpick (the customer&apos;s invoices) and what is for Round Island. The parts must add up to the payment.</p>
+
+      <div className="ph-block">
+        <h4>Oceanpick</h4>
+        {cust && !picking ? (
+          <p className="row ph-cust"><span>Customer: <strong>{cust.name}</strong> <span className="muted">({cust.customer_no})</span></span>
+            <button type="button" className="link small" onClick={() => setPicking(true)}>Change customer</button>
+            {invTotal === 0 && n(rest) === 0 && <button type="button" className="link small" onClick={() => { setCust(null); setPicking(true); }}>No Oceanpick invoice</button>}</p>
+        ) : (
+          <div className="ph-pick">
+            <input type="search" placeholder="Search customer name or no., invoice or external document no." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" />
+            {found === null ? <p className="muted small">Looking for customers…</p> : opts.length === 0 ? <p className="muted small">No customer found{q ? '' : ': search for one'}. If it is all for Round Island, leave this.</p> : (
+              <ul className="ph-custs">
+                {opts.slice(0, 12).map((c) => (
+                  <li key={c.customer_no}><button type="button" className="btn small ghost" onClick={() => pickCust(c)}>
+                    <strong>{c.name}</strong> <span className="muted">({c.customer_no})</span>{c.why && <span className="lp-exact"> · {c.why}</span>}</button></li>
+                ))}
+              </ul>
+            )}
+            {cust && <button type="button" className="link small" onClick={() => setPicking(false)}>Keep {cust.name}</button>}
+          </div>
+        )}
+        {cust && !picking && (invoices === null ? <p className="muted small">Loading invoices…</p> : invoices.length === 0 && gone.length === 0 ? (
+          <p className="muted small">No open invoices for {cust.name} in the latest customer ledger upload.</p>
+        ) : (
+          <ul className="checklist ph-invs">
+            {invoices.map((i) => {
+              const on = i.document_no in amt;
+              const full = n(i.free) <= 0.004;
+              return (
+                <li key={i.document_no} className={on ? 'on' : ''}>
+                  <div className="ph-invrow"><label>
+                    <input type="checkbox" checked={on} disabled={!on && full} onChange={() => toggle(i)} />
+                    <span className="lp-main">
+                      <span className="lp-narr"><strong>{i.document_no}</strong> · LKR {lkr(i.remaining_amount)} open</span>
+                      <span className="lp-meta">
+                        <span>{fmtDate(i.posting_date)}</span>
+                        {i.external_document_no && <span>Ext. {i.external_document_no}</span>}
+                        {i.by_order && <span className="lp-exact">Order {p.order_id}</span>}
+                        {i.taken_by && <span className="lp-close">On PayHere payment {i.taken_by}</span>}
+                        {full ? <span className="lp-close">Covered by other receipts</span> : !same(i.free, i.remaining_amount) && <span className="lp-close">LKR {lkr(i.free)} free</span>}
+                      </span>
+                    </span>
+                  </label>
+                  {on && <input className="ph-amt" type="number" inputMode="decimal" step="0.01" min="0" value={amt[i.document_no]} aria-label={`Amount for ${i.document_no}`}
+                    onChange={(e) => setAmt((m) => ({ ...m, [i.document_no]: e.target.value }))} />}</div>
+                  {on && over.includes(i.document_no) && <p className="error small ph-inline">Only LKR {lkr(i.free)} is free on {i.document_no}.</p>}
+                </li>
+              );
+            })}
+            {gone.map((d) => (
+              <li key={d} className="on"><div className="ph-invrow"><label>
+                <input type="checkbox" checked onChange={() => setAmt((m) => { const x = { ...m }; delete x[d]; return x; })} />
+                <span className="lp-main"><span className="lp-narr"><strong>{d}</strong></span><span className="lp-meta"><span className="lp-close">Not open any more: untick it</span></span></span>
+              </label><span className="num lp-amt">{lkr(amt[d])}</span></div></li>
+            ))}
+          </ul>
+        ))}
+        {cust && !picking && (
+          <div className="row ph-line">
+            <label className="field inline"><span>Left on {cust.name}, unapplied</span>
+              <input className="ph-amt" type="number" inputMode="decimal" step="0.01" min="0" value={rest} onChange={(e) => setRest(e.target.value)} /></label>
+            {left > 0.004 && <button type="button" className="link small" onClick={() => setRest(String(r2(n(rest) + left)))}>Rest on the customer</button>}
+          </div>
+        )}
+      </div>
+
+      <div className="ph-block">
+        <h4>Round Island</h4>
+        <div className="row ph-line">
+          <label className="field inline"><span>Amount</span>
+            <input className="ph-amt" type="number" inputMode="decimal" step="0.01" min="0" value={ri} onChange={(e) => setRi(e.target.value)} aria-label="Round Island amount" /></label>
+          <label className="field inline"><span>RI invoice no.</span>
+            <input className="ph-ref" value={riRef} onChange={(e) => setRiRef(e.target.value)} placeholder="RI-01511" aria-label="Round Island invoice no." /></label>
+          {left > 0.004 && <button type="button" className="link small" onClick={() => setRi(String(r2(n(ri) + left)))}>Rest to Round Island</button>}
+        </div>
+        <p className="hint small">Exported to BC to the RI Current Account (G/L 102030), not to a customer.</p>
+        {needRef && <p className="error small">Give the Round Island invoice no.</p>}
+      </div>
+
+      <p className="ph-sum">
+        <span>Oceanpick <strong>{lkr(invTotal + n(rest))}</strong></span>
+        <span>Round Island <strong>{lkr(n(ri))}</strong></span>
+        <span className={Math.abs(left) < 0.005 ? 'ok-text' : 'error'}>{Math.abs(left) < 0.005 ? `Adds up to LKR ${lkr(p.gross)}` : left > 0 ? `LKR ${lkr(left)} still to place` : `LKR ${lkr(-left)} too much`}</span>
+      </p>
+      <label className="field"><span className="flabel">{fin ? 'Note' : 'Note for finance'} <span className="muted small">(optional)</span></span>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="E.g. 2 Round Island items on this order" /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button type="button" className="btn small primary" disabled={!canSave} onClick={save}>{busy ? 'Saving…' : fin ? 'Save' : 'Send to finance'}</button>
+        {!same(ri, p.gross) && <button type="button" className="btn small ghost" disabled={busy} onClick={allToRi}>All to Round Island</button>}
+        <button type="button" className="link" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Finance picks the invoice (or only the customer) a payment is for.
 function MatchPicker({ p, onDone, onCancel }) {
   const [q, setQ] = useState('');
   const [data, setData] = useState(null);
-  const [pick, setPick] = useState(p.document_no ? `${p.customer_no}|${p.document_no}` : p.customer_no ? `${p.customer_no}|` : '');
+  const split = (p.parts ?? []).length > 0;
+  const [pick, setPick] = useState(split ? '' : p.document_no ? `${p.customer_no}|${p.document_no}` : p.customer_no ? `${p.customer_no}|` : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -62,7 +291,7 @@ function MatchPicker({ p, onDone, onCancel }) {
   const customers = (data?.customers ?? []).filter((c) => !invoices.some((i) => i.customer_no === c.customer_no && pick === `${c.customer_no}|`));
   return (
     <div className="ph-pick">
-      <p className="hint">{p.customer_name} paid LKR {lkr(p.gross)} for order {p.order_id ?? '—'} on {fmtDate(day(p.paid_at))}. Open invoices with the order number or the same amount come first; search for others.</p>
+      <p className="hint">{p.customer_name} paid LKR {lkr(p.gross)} for order {p.order_id ?? '—'} on {fmtDate(day(p.paid_at))}. Open invoices with the order number or the same amount come first; search for others.{split ? ' Picking one replaces the split.' : ''}</p>
       <input type="search" placeholder="Search customer, invoice or external document no." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search invoices" />
       {error && <p className="error">{error}</p>}
       {data === null ? <p className="muted">Looking for invoices…</p> : (
@@ -120,55 +349,50 @@ function MatchPicker({ p, onDone, onCancel }) {
       )}
       <div className="row">
         <button className="btn small primary" disabled={busy || !pick} onClick={() => save(pc, pd || null)}>{pd ? `Match to ${pd}` : 'Put on the customer'}</button>
-        {p.customer_no && <button className="btn small ghost" disabled={busy} onClick={() => save(null, null)}>Clear the match</button>}
+        {isMatched(p) && <button className="btn small ghost" disabled={busy} onClick={() => save(null, null)}>{split ? 'Clear the split' : 'Clear the match'}</button>}
         <button className="link" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );
 }
 
-// One payment's row: who paid, and which invoice it settles.
+// One payment's row: who paid, and where it goes (an invoice, or Oceanpick invoices and Round Island).
 function PaymentRow({ p, locked, fin, onChanged }) {
-  const [picking, setPicking] = useState(false);
+  const [mode, setMode] = useState(null);   // 'pick' (one invoice) | 'split'
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const matched = isMatched(p);
   const confirm = async () => {
     setBusy(true); setError('');
     try { await rpc('cc_payhere_confirm', { p_payment_ids: [p.id] }); await onChanged(); } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const status = p.status !== 'Paid out' ? <span className="lp-close">{p.status ?? 'No status'}</span> : null;
-  let match;
-  if (!p.customer_no) match = <span className="error small">No invoice matched</span>;
-  else {
-    match = (
-      <>
-        <strong>{p.document_no ?? 'Unapplied'}</strong> · {p.account_name ?? p.customer_no} <span className="muted small">({p.customer_no})</span>
-        <div className={`small ${p.confirmed ? 'muted' : 'warn-text'}`}>{p.confirmed ? '' : 'Suggested: '}{howText(p)}</div>
-      </>
-    );
-  }
+  const done = async () => { setMode(null); await onChanged(); };
   return (
     <>
-      <tr className={!p.customer_no || !p.confirmed ? 'row-open' : ''}>
+      <tr className={!matched || !p.confirmed ? 'row-open' : ''}>
         <td className="hide-sm">{fmtDateTime(p.paid_at)}<div className="muted small">{p.method}</div></td>
         <td>{p.customer_name}<div className="muted small"><span className="show-sm">{fmtDate(day(p.paid_at))} · </span>Order {p.order_id ?? '—'} · {p.payment_no} {status}</div></td>
         <td className="num">{lkr(p.gross)}</td>
         <td className="num hide-sm">{lkr(p.fee)}</td>
         <td className="num hide-sm">{lkr(p.net)}</td>
         <td>
-          {match}
-          {fin && !locked && !picking && (
+          {matched ? <><WhereItGoes p={p} /><MatchNote p={p} /></> : <span className="error small">Nothing said yet: no invoice matched</span>}
+          {fin && !locked && !mode && (
             <div className="row ph-acts">
-              {p.customer_no && !p.confirmed && <button className="btn small primary" disabled={busy} onClick={confirm}>Confirm</button>}
-              <button className={p.customer_no ? 'link small' : 'btn small'} onClick={() => setPicking(true)}>{p.customer_no ? 'Change' : 'Pick the invoice'}</button>
+              {matched && !p.confirmed && <button className="btn small primary" disabled={busy} onClick={confirm}>Confirm</button>}
+              <button className={matched ? 'link small' : 'btn small'} onClick={() => setMode('pick')}>{matched ? 'Change' : 'Pick the invoice'}</button>
+              <button className="link small" onClick={() => setMode('split')}>{(p.parts ?? []).length ? 'Change the split' : 'Split with Round Island'}</button>
             </div>
           )}
           {error && <p className="error small">{error}</p>}
         </td>
       </tr>
-      {picking && (
+      {mode && (
         <tr className="sub-row"><td colSpan={6}>
-          <MatchPicker p={p} onCancel={() => setPicking(false)} onDone={async () => { setPicking(false); await onChanged(); }} />
+          {mode === 'pick'
+            ? <MatchPicker p={p} onCancel={() => setMode(null)} onDone={done} />
+            : <SettlePanel p={p} onCancel={() => setMode(null)} onDone={done} />}
         </td></tr>
       )}
     </>
@@ -179,7 +403,7 @@ function PaymentsTable({ payments, locked, fin, onChanged, foot }) {
   return (
     <div className="table-wrap flat">
       <table className="table ph-table">
-        <thead><tr><th className="hide-sm">Paid</th><th>Customer (PayHere)</th><th className="num">Amount</th><th className="num hide-sm">Fee</th><th className="num hide-sm">Net</th><th>Invoice</th></tr></thead>
+        <thead><tr><th className="hide-sm">Paid</th><th>Customer (PayHere)</th><th className="num">Amount</th><th className="num hide-sm">Fee</th><th className="num hide-sm">Net</th><th>Where it goes</th></tr></thead>
         <tbody>{payments.map((p) => <PaymentRow key={p.id} p={p} locked={locked} fin={fin} onChanged={onChanged} />)}</tbody>
         {foot}
       </table>
@@ -200,7 +424,7 @@ function PayoutCard({ o, open, onToggle, lines, onChanged, focus }) {
   useEffect(() => { if (focus) el.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, [focus]);
   const locked = Boolean(o.doc_no);
   const pays = o.payments ?? [];
-  const unconf = pays.filter((p) => p.customer_no && !p.confirmed);
+  const unconf = pays.filter((p) => isMatched(p) && !p.confirmed);
   const missing = o.amount != null && !same(o.amount, o.payments_net);
   const st = payoutState(o);
   const offered = lines.filter((l) => same(l.credit, o.net) || (l.payhere && o.bank_ref && l.narration?.replace(/\D/g, '').includes(o.bank_ref.replace(/\D/g, ''))));
@@ -245,7 +469,7 @@ function PayoutCard({ o, open, onToggle, lines, onChanged, focus }) {
           {error && <p className="error">{error}</p>}
           {fin && !locked && unconf.length > 1 && (
             <p className="row"><button className="btn small primary" disabled={busy} onClick={() => act(() => rpc('cc_payhere_confirm', { p_payment_ids: unconf.map((p) => p.id) }))}>
-              Confirm the {unconf.length} suggestions</button><span className="hint">Check each name and invoice first.</span></p>
+              Confirm all {unconf.length}</button><span className="hint">Check each name, invoice and Round Island part first.</span></p>
           )}
           <PaymentsTable payments={pays} locked={locked} fin={fin} onChanged={onChanged}
             foot={<tfoot><tr><td className="hide-sm" /><td>Payout total</td><td className="num">{lkr(o.gross)}</td><td className="num hide-sm">{lkr(o.fee)}</td><td className="num hide-sm">{lkr(o.payments_net)}</td><td /></tr></tfoot>} />
@@ -335,7 +559,89 @@ function Upload({ onDone }) {
 }
 
 // ---------------------------------------------------------------------------
+// Sales: the web payments, and where each one goes.
+function SalesRow({ p, open, onToggle, onChanged }) {
+  const todo = !p.exported && !p.confirmed && !p.settled_at;
+  return (
+    <>
+      <tr className={todo ? 'row-open' : ''}>
+        <td className="hide-sm">{fmtDateTime(p.paid_at)}<div className="muted small">{p.method}</div></td>
+        <td>{p.customer_name}<div className="muted small"><span className="show-sm">{fmtDate(day(p.paid_at))} · </span>Order {p.order_id ?? '—'} · {p.payment_no}
+          {p.status !== 'Paid out' && <> · <span className="lp-close">{p.status === 'Authorized' ? 'not paid out yet' : p.status}</span></>}</div>
+          {p.email && <div className="muted small hide-sm">{p.email}</div>}</td>
+        <td className="num">{lkr(p.gross)}</td>
+        <td>
+          <WhereItGoes p={p} /><MatchNote p={p} sales />
+          {!p.exported && !open && (
+            <div className="row ph-acts">
+              <button className={todo ? 'btn small primary' : 'link small'} onClick={onToggle}>
+                {(p.parts ?? []).length ? 'Change' : isMatched(p) ? 'Check or split' : 'Say where it goes'}</button>
+            </div>
+          )}
+        </td>
+      </tr>
+      {open && (
+        <tr className="sub-row"><td colSpan={4}>
+          <SettlePanel p={p} onCancel={onToggle} onDone={async () => { onToggle(); await onChanged(); }} />
+        </td></tr>
+      )}
+    </>
+  );
+}
+
+function SalesView() {
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState(null);
+  const [openId, setOpenId] = useState(null);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    try { setData(await rpc('cc_payhere_sales_list')); setError(''); }
+    catch (e) { setError(e.message); setData((d) => d ?? { payments: [] }); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (data === null) return <p className="muted">Loading…</p>;
+  const pays = data.payments ?? [];
+  const todo = pays.filter((p) => !p.exported && !p.confirmed && !p.settled_at);
+  const sent = pays.filter((p) => !p.exported && !p.confirmed && p.settled_at);
+  const done = pays.filter((p) => p.exported || p.confirmed);
+  const active = tab ?? (todo.length || !sent.length ? 'todo' : 'sent');
+  const list = { todo, sent, done }[active];
+  const tabs = [
+    { key: 'todo', label: 'To settle', n: todo.length },
+    { key: 'sent', label: 'With finance', n: sent.length },
+    { key: 'done', label: 'Confirmed', n: done.length },
+  ];
+  return (
+    <section className="wide">
+      <div className="page-head"><h1>PayHere web payments</h1></div>
+      <p className="lede">Card payments on roundisland.lk. For each one, say which Oceanpick invoice it pays and how much of it is for Round Island, with the RI invoice no.
+        Finance confirms it and exports it to BC: the Oceanpick part to the customer&apos;s invoice, the Round Island part to the RI Current Account (G/L {data.settings?.ri_gl ?? '102030'}).</p>
+      {error && <p className="error">{error}</p>}
+      {data.last_upload && <p className="muted small">PayHere export last uploaded by finance {fmtDateTime(data.last_upload.done_at)}.</p>}
+      <div className="tabs report-tabs" role="tablist">
+        {tabs.map((t) => <button key={t.key} role="tab" aria-selected={active === t.key} className={active === t.key ? 'tab on' : 'tab'} onClick={() => setTab(t.key)}>{t.label} <span className="count">{t.n}</span></button>)}
+      </div>
+      {list.length === 0 ? (
+        <div className="empty"><p>{active === 'todo' ? 'Nothing waiting for you.' : active === 'sent' ? 'Nothing waiting for finance.' : 'None in the last 60 days.'}</p></div>
+      ) : (
+        <div className="table-wrap flat">
+          <table className="table ph-table">
+            <thead><tr><th className="hide-sm">Paid</th><th>Customer (PayHere)</th><th className="num">Amount</th><th>Where it goes</th></tr></thead>
+            <tbody>{list.map((p) => <SalesRow key={p.id} p={p} open={openId === p.id} onToggle={() => setOpenId((x) => (x === p.id ? null : p.id))} onChanged={load} />)}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 export default function PayHerePage() {
+  const { role } = useAuth();
+  return role === 'sales' ? <SalesView /> : <FinanceView />;
+}
+
+function FinanceView() {
   const { role } = useAuth();
   const fin = role === 'finance';
   const [params] = useSearchParams();
@@ -361,8 +667,8 @@ export default function PayHerePage() {
   const unpaired = lines.filter((l) => l.payhere);
   const unfinished = payouts.filter((o) => o.post_status !== 'posted');
   const all = payouts.flatMap((o) => (o.doc_no ? [] : o.payments ?? []));
-  const toMatch = all.filter((p) => !p.customer_no).length + waiting.filter((p) => !p.customer_no).length;
-  const toConfirm = all.filter((p) => p.customer_no && !p.confirmed).length + waiting.filter((p) => p.customer_no && !p.confirmed).length;
+  const toMatch = all.filter((p) => !isMatched(p)).length + waiting.filter((p) => !isMatched(p)).length;
+  const toConfirm = all.filter((p) => isMatched(p) && !p.confirmed).length + waiting.filter((p) => isMatched(p) && !p.confirmed).length;
   const ready = payouts.filter((o) => payoutState(o).label === 'Ready for BC');
   const focusPosted = focusId && payouts.find((o) => o.id === focusId)?.post_status === 'posted';
   const active = tab ?? (focusPosted ? 'all' : 'open');
@@ -383,16 +689,18 @@ export default function PayHerePage() {
       </div>
       <p className="lede">Card payments on roundisland.lk go through PayHere, which pays them into Sampath 590 in payouts, after its fee. The app matches each payment
         to its WEB invoice by the order number and amount (or suggests the open invoice of the same amount in the payer's name, for you to confirm) and pairs each payout
-        with its Sampath credit. A payout goes to Export to BC as one BAKRC: each customer at the full amount applied to the invoice, the fee to G/L 204003,
-        Sampath 590 as balancing account, Comment = the Sampath description. Payouts from {fmtDate(data.settings?.start_date)} onwards.</p>
+        with its Sampath credit. When a payment is partly for Round Island, Sales split it (Oceanpick invoices, and the Round Island part with its RI invoice no.)
+        for you to confirm, or you split it yourself. A payout goes to Export to BC as one BAKRC: each customer applied to the invoice, the Round Island part
+        to G/L {data.settings?.ri_gl ?? '102030'} RI Current Account, the fee to G/L 204003, Sampath 590 as balancing account, Comment = the Sampath description.
+        Payouts from {fmtDate(data.settings?.start_date)} onwards.</p>
       {error && <p className="error">{error}</p>}
       {!data.account && <p className="error">No bank account in the app has BC code {data.settings?.bank_code}: set it on the Bank page so payouts can be paired with Sampath credits.</p>}
       {data.last_upload && <p className="muted small">Last upload: {data.last_upload.file_name} ({data.last_upload.kind}), {fmtDateTime(data.last_upload.done_at)} by {data.last_upload.done_by}</p>}
       {fin && (showUpload || payouts.length === 0) && <Upload onDone={() => { setShowUpload(true); return load(false); }} />}
 
       <div className="kpis">
-        <div><span>{toMatch}</span>payments with no invoice<small>pick the invoice</small></div>
-        <div><span>{toConfirm}</span>suggestions to confirm<small>same name and amount</small></div>
+        <div><span>{toMatch}</span>payments with no invoice<small>pick the invoice, or wait for Sales</small></div>
+        <div><span>{toConfirm}</span>to confirm<small>the app&apos;s suggestions and Sales&apos; splits</small></div>
         <div><span>{ready.length}</span>payouts ready for BC<small>LKR {lkr(ready.reduce((a, o) => a + n(o.net), 0))}{ready.length > 0 && fin ? <> · <Link to="/bc-export">Export</Link></> : ''}</small></div>
         <div><span>{unpaired.length}</span>PayHere credits not paired<small>LKR {lkr(unpaired.reduce((a, l) => a + n(l.credit), 0))}</small></div>
       </div>

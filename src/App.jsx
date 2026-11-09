@@ -61,7 +61,7 @@ function Gate() {
         {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant" element={<MerchantPage />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant/s/:id" element={<MerchantStatement />} />}
         {role === 'finance' && <Route path="merchant/new" element={<MerchantAdd />} />}
-        {(role === 'finance' || role === 'executive') && <Route path="payhere" element={<PayHerePage />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="payhere" element={<PayHerePage />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="not-in-bc" element={<NotInBc />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="aging" element={<Aging />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="customer-list" element={<CustomerList />} />}
