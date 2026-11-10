@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth';
 import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { readPayHere } from '../lib/payhere';
 import ReopenDoc from '../components/ReopenDoc';
+import { TAGS } from '../lib/workflow';
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const n = (x) => Number(x ?? 0);
@@ -439,7 +440,8 @@ function PayoutCard({ o, open, onToggle, lines, onChanged, focus }) {
       <label>
         <input type="radio" name={`po${o.id}`} checked={lineId === l.id} onChange={() => setLineId(l.id)} />
         <span className="lp-main"><span className="lp-narr">{l.narration}</span>
-          <span className="lp-meta"><span>{fmtDate(l.txn_date)}</span>{l.reference && <span>{l.reference}</span>}{same(l.credit, o.net) && <span className="lp-exact">Same amount</span>}</span></span>
+          <span className="lp-meta"><span>{fmtDate(l.txn_date)}</span>{l.reference && <span>{l.reference}</span>}{same(l.credit, o.net) && <span className="lp-exact">Same amount</span>}
+            {l.tag && <span className="lp-close">Tagged {TAGS[l.tag] ?? l.tag}{l.tag_note ? ` (${l.tag_note})` : ''}{l.tagged_by ? ` by ${l.tagged_by}` : ''}: pairing takes the tag off</span>}</span></span>
         <span className="num lp-amt">{lkr(l.credit)}</span>
       </label>
     </li>
@@ -731,8 +733,9 @@ function FinanceView() {
             If one doesn't, open its payout and pair it by hand.</p>
           {unpaired.length === 0 ? <p className="muted">None.</p> : (
             <div className="table-wrap flat"><table className="table">
-              <thead><tr><th>Date</th><th>Narration</th><th className="num">LKR</th></tr></thead>
-              <tbody>{unpaired.map((l) => <Fragment key={l.id}><tr><td>{fmtDate(l.txn_date)}</td><td className="narr">{l.narration}</td><td className="num">{lkr(l.credit)}</td></tr></Fragment>)}</tbody>
+              <thead><tr><th>Date</th><th>Narration</th><th className="num">LKR</th><th>Note</th></tr></thead>
+              <tbody>{unpaired.map((l) => <Fragment key={l.id}><tr><td>{fmtDate(l.txn_date)}</td><td className="narr">{l.narration}</td><td className="num">{lkr(l.credit)}</td>
+                <td className="small">{l.tag ? <span className="warn-text">Tagged {TAGS[l.tag] ?? l.tag}{l.tagged_by ? ` by ${l.tagged_by}` : ''}: pair it with its payout</span> : ''}</td></tr></Fragment>)}</tbody>
             </table></div>
           )}
         </div>

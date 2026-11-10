@@ -223,7 +223,9 @@ function Reconciliation() {
                             </div>
                           )}
                         </>}</td>}
-                      {role === 'finance' && <td className="tag-btns">{Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l.id, k)}>{v}</button>)}</td>}
+                      {role === 'finance' && <td className="tag-btns">{isCard(l)
+                        ? <span className="muted small">{isPayHereLine(l) ? 'Paired on the PayHere page' : 'Matched on Merchant statements'}</span>
+                        : Object.entries(TAGS).map(([k, v]) => <button key={k} className="link" disabled={busy} onClick={() => tag(l.id, k)}>{v}</button>)}</td>}
                     </tr>
                     {remindLine === l.id && (
                       <tr className="remind-row"><td colSpan={cols}>
