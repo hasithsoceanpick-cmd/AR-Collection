@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { db, rpc } from '../lib/supabase';
 import { fetchAll } from '../lib/bcimport';
 import { lkr, fmtDate } from '../lib/format';
+import { useAuth } from '../lib/auth';
 
-// While finance types a first CSHRC / BAKRC number: which of the numbers it would use are taken.
-//  In the app by another receipt → can't be used. Only in Business Central → can be used once ticked.
-export function NumberCheck({ code, first, count, bcOk, setBcOk, onState }) {
+// The numbers a receive or an export is about to use: which are taken. Numbers come from the series (BC's next numbers);
+// a clash means the app and BC are out of line, which Match BC numbers fixes.
+export function NumberCheck({ code, first, count, onState }) {
   const [rows, setRows] = useState([]);
   const [tick, setTick] = useState(0);   // checks again after a number is changed from here
   useEffect(() => {
@@ -18,26 +19,14 @@ export function NumberCheck({ code, first, count, bcOk, setBcOk, onState }) {
   }, [code, first, count, tick]);
   const app = rows.filter((r) => r.app);
   const bc = rows.filter((r) => r.bc && !r.app);
-  useEffect(() => {
-    onState?.({ app: app.length, bc: bc.length });
-    if (!bc.length && bcOk) setBcOk(false);
-  }, [app.length, bc.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onState?.({ app: app.length, bc: bc.length }); }, [app.length, bc.length]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!app.length && !bc.length) return null;
-  const many = code === 'CSHRC' ? '/cash?numbers=1' : '/bc-check?numbers=1';
   return (
     <div className="number-check">
-      {app.map((r) => (
-        <div key={r.no} className="nc-app">
-          <p className="error small">{r.no} is already used in the app by {r.app}. Choose another first number, or change that one's number to the one BC has for it.</p>
-          {r.app_id && <Renumber kind={r.app_kind} id={r.app_id} label={`Change the number of ${r.app.split(' ')[0]}`} onDone={() => setTick((n) => n + 1)} />}
-        </div>
-      ))}
-      {app.length > 0 && <p className="hint small">Receipts posted in BC shifted by one number? <Link to={many}>Change several numbers at once</Link>.</p>}
-      {bc.map((r) => <p key={r.no} className="bc-note small">{r.no} is already in Business Central: {r.bc}.</p>)}
-      {bc.length > 0 && app.length === 0 && (
-        <label className="check"><input type="checkbox" checked={bcOk} onChange={(e) => setBcOk(e.target.checked)} />
-          Already posted in BC under {bc.length === 1 ? 'this number' : 'these numbers'}: use {bc.length === 1 ? 'it' : 'them'}</label>
-      )}
+      {app.map((r) => <p key={r.no} className="error small">{r.no} is already held in the app by {r.app}.</p>)}
+      {bc.map((r) => <p key={r.no} className="error small">{r.no} is already in Business Central: {r.bc}.</p>)}
+      <p className="hint small">The app and Business Central are out of line. <a href="#match-bc" onClick={() => setTick((n) => n + 1)}>Match BC numbers</a> lines them up
+        (a Finance Admin enters BC&apos;s next numbers).</p>
     </div>
   );
 }
@@ -76,37 +65,155 @@ export function Renumber({ kind = null, id = null, docNo = null, onDone, label =
   );
 }
 
-// Finance: the next BAKRC and CSHRC numbers.
-export function NumberSeries() {
-  const [series, setSeries] = useState([]);
-  const [edit, setEdit] = useState({});
+// Finance: where the app's numbers stand against Business Central, and (Finance Admin) lining them up:
+// enter BC's next BAKRC and CSHRC numbers, preview what changes, apply.
+const SECTIONS = [
+  { key: 'duplicates', title: 'Copies removed: BC already has these under the earlier number', cols: ['Copy', 'Restored', 'What', 'LKR'] },
+  { key: 'freed', title: 'Numbers freed: sent back, reopened or cancelled, and BC never had them', cols: ['Number', '', 'What', 'LKR'] },
+  { key: 'renumber', title: "Renumbered to BC's next numbers (not posted in BC yet)", cols: ['Now', 'Becomes', 'What', 'LKR'] },
+];
+export function MatchBc({ open: startOpen = false, onDone }) {
+  const { role, isAdmin } = useAuth();
+  const admin = role === 'finance' && isAdmin;
+  const [status, setStatus] = useState(null);
+  const [open, setOpen] = useState(startOpen);
+  const [bakrc, setBakrc] = useState('');
+  const [cshrc, setCshrc] = useState('');
+  const [plan, setPlan] = useState(null);
+  const [also, setAlso] = useState(new Set());
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
-  const load = () => db.from('doc_series').select('code, prefix, width, next_no').in('code', ['BAKRC', 'CSHRC']).order('code')
-    .then(({ data }) => { setSeries(data ?? []); setEdit(Object.fromEntries((data ?? []).map((s) => [s.code, s.next_no ? String(s.next_no) : '']))); });
-  useEffect(() => { load(); }, []);
-  async function save(code) {
-    setError(''); setMsg('');
-    try { await rpc('cc_doc_series_set', { p_code: code, p_next: Number(edit[code]) }); setMsg(`Next ${code} number saved.`); await load(); }
-    catch (e) { setError(e.message); }
+  const box = useRef(null);
+  const load = useCallback(async () => {
+    try {
+      const s = await rpc('cc_doc_numbers_status');
+      setStatus(s);
+      setBakrc((v) => v || String(s?.BAKRC?.start_no || s?.BAKRC?.next_no || ''));
+      setCshrc((v) => v || String(s?.CSHRC?.start_no || s?.CSHRC?.next_no || ''));
+    } catch (e) { setError(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (startOpen) { setOpen(true); box.current?.scrollIntoView({ block: 'start' }); } }, [startOpen]);
+  useEffect(() => {   // "Match BC numbers" links elsewhere on the page open this
+    const go = () => { if (window.location.hash === '#match-bc') { setOpen(true); box.current?.scrollIntoView({ block: 'start' }); } };
+    window.addEventListener('hashchange', go); go();
+    return () => window.removeEventListener('hashchange', go);
+  }, []);
+  useEffect(() => { setPlan(null); }, [bakrc, cshrc]);
+
+  const args = (apply) => {
+    const ad = [], ac = [];
+    for (const k of also) { const [kind, id] = k.split(':'); (kind === 'cash' ? ac : ad).push(Number(id)); }
+    return { p_bakrc: Number(bakrc), p_cshrc: Number(cshrc), p_apply: apply, p_note: apply ? note : null, p_also_docs: ad, p_also_cash: ac };
+  };
+  async function preview() {
+    setBusy(true); setError(''); setMsg('');
+    try { setPlan(await rpc('cc_doc_numbers_sync', args(false))); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
+  useEffect(() => { if (plan) preview(); }, [also]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function apply() {
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const r = await rpc('cc_doc_numbers_sync', args(true));
+      const n = (r.renumber?.length ?? 0) + (r.duplicates?.length ?? 0) + (r.freed?.length ?? 0);
+      setMsg(`Done: ${n} change${n === 1 ? '' : 's'}. Next numbers: ${r.app_next.BAKRC} and ${r.app_next.CSHRC}.${r.unique_note ? ` ${r.unique_note}` : ''}`);
+      setPlan(null); setAlso(new Set()); setNote('');
+      await load(); await onDone?.();
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  const out = (s) => Boolean(s && (s.behind || (s.gaps ?? []).length > 0));
+  const toCheck = (s) => Boolean(s && (s.below ?? []).length > 0);
+  const anyOut = status && (out(status.BAKRC) || out(status.CSHRC));
+  const anyCheck = status && (toCheck(status.BAKRC) || toCheck(status.CSHRC));
+  const changes = plan ? (plan.renumber?.length ?? 0) + (plan.duplicates?.length ?? 0) + (plan.freed?.length ?? 0) : 0;
+  const tick = (k) => setAlso((a) => { const n = new Set(a); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
   return (
-    <details className="facts number-series">
-      <summary>Number series: next BAKRC and CSHRC numbers</summary>
-      <p className="hint">The app starts the next export (BAKRC) or cash receipt (CSHRC) from these. Set them to the next free numbers in Business Central.</p>
-      {series.map((s) => (
-        <div className="row" key={s.code}>
-          <label className="inline-field">{s.code === 'BAKRC' ? 'Bank receipts' : 'Cash receipts'}: next {s.code}
-            <input inputMode="numeric" value={edit[s.code] ?? ''} onChange={(e) => setEdit({ ...edit, [s.code]: e.target.value.replace(/\D/g, '') })} aria-label={`Next ${s.code} number`} /></label>
-          <span className="muted small">{edit[s.code] ? `${s.prefix}${edit[s.code].padStart(s.width, '0')}` : 'not set'}</span>
-          <button className="btn small" disabled={!edit[s.code] || String(s.next_no ?? '') === edit[s.code]} onClick={() => save(s.code)}>Save</button>
+    <details className="facts match-bc" id="match-bc" open={open} ref={box} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>Numbers and Business Central{anyOut ? <span className="pill bad">out of line</span> : anyCheck ? <span className="pill warn">in line · some to check</span>
+        : status ? <span className="pill ok">in line</span> : null}</summary>
+      <p className="hint">BAKRC and CSHRC numbers follow Business Central&apos;s No. Series: the app gives the next numbers only when it makes the documents (export)
+        or receives cash, and a failed step gives none. If BC&apos;s next number is different (something was posted in BC by hand, or a file wasn&apos;t posted),
+        match it here.</p>
+      {status && (
+        <div className="table-wrap flat"><table className="table small">
+          <thead><tr><th>Series</th><th>App&apos;s next</th><th>BC&apos;s next (confirmed)</th><th>Highest in BC ledgers</th><th>Out of line</th></tr></thead>
+          <tbody>{['BAKRC', 'CSHRC'].map((c) => { const s = status[c] ?? {}; return (
+            <tr key={c}>
+              <td><strong>{c}</strong></td>
+              <td>{s.next ?? 'not set'}</td>
+              <td>{s.bc_next ?? '—'}{s.bc_synced_at && <div className="muted small">{fmtDate(s.bc_synced_at)}{s.bc_synced_by ? `, ${s.bc_synced_by}` : ''}</div>}</td>
+              <td>{s.bc_max ?? '—'}</td>
+              <td className="small">{!out(s) && !toCheck(s) ? <span className="ok-text">No</span> : <>
+                {s.behind && <div className="error">BC&apos;s ledgers already have {s.bc_max}: the app&apos;s next number is behind BC.</div>}
+                {(s.gaps ?? []).length > 0 && <div className="error">No receipt holds {s.gaps.slice(0, 5).join(', ')}{s.gaps.length > 5 ? ` and ${s.gaps.length - 5} more` : ''}: BC&apos;s journal would have a gap.</div>}
+                {(s.below ?? []).length > 0 && <div className="warn-text">Not in BC, but BC is past {s.below.length === 1 ? 'its number' : 'their numbers'}: {s.below.slice(0, 5).map((b) => b.doc_no).join(', ')}{s.below.length > 5 ? ` and ${s.below.length - 5} more` : ''}.</div>}
+              </>}</td>
+            </tr>); })}</tbody>
+        </table></div>
+      )}
+      {admin ? (
+        <div className="match-form">
+          <h3>Match BC numbers</h3>
+          <p className="hint small">Upload the latest bank and customer ledgers on <Link to="/bc-check">BC check</Link> first{plan?.uploads ? ` (last: bank ${plan.uploads.bank ? fmtDate(plan.uploads.bank) : 'never'}, customer ${plan.uploads.customer ? fmtDate(plan.uploads.customer) : 'never'})` : ''}.
+            Then type the next numbers from the No. Series in Business Central.</p>
+          <div className="row">
+            <label className="inline-field">BC&apos;s next BAKRC <input inputMode="numeric" value={bakrc} onChange={(e) => setBakrc(e.target.value.replace(/\D/g, ''))} aria-label="Business Central's next BAKRC number" /></label>
+            <label className="inline-field">BC&apos;s next CSHRC <input inputMode="numeric" value={cshrc} onChange={(e) => setCshrc(e.target.value.replace(/\D/g, ''))} aria-label="Business Central's next CSHRC number" /></label>
+            <button className="btn" disabled={busy || !bakrc || !cshrc} onClick={preview}>{busy && !plan ? 'Checking…' : 'Preview'}</button>
+          </div>
+          {plan && (
+            <div className="match-plan">
+              {plan.errors.length > 0 && <div className="notice danger-notice"><strong>This can&apos;t be applied:</strong><ul className="plain">{plan.errors.map((e) => <li key={e}>{e}</li>)}</ul></div>}
+              {SECTIONS.map((sec) => (plan[sec.key] ?? []).length > 0 && (
+                <div key={sec.key}>
+                  <h4>{sec.title} ({plan[sec.key].length})</h4>
+                  <div className="table-wrap flat"><table className="table small">
+                    <thead><tr>{sec.cols.map((c) => <th key={c} className={c === 'LKR' ? 'num' : ''}>{c}</th>)}</tr></thead>
+                    <tbody>{plan[sec.key].map((x) => (
+                      <tr key={`${sec.key}-${x.doc_no ?? x.old}`}>
+                        <td><strong>{x.doc_no ?? x.old}</strong></td>
+                        <td>{sec.key === 'renumber' ? <strong>{x.new}</strong> : x.restore_no ?? ''}</td>
+                        <td>{x.item}<div className="muted small">{x.why}</div></td>
+                        <td className="num">{x.total != null ? lkr(x.total) : ''}</td>
+                      </tr>))}</tbody>
+                  </table></div>
+                </div>
+              ))}
+              {(plan.check ?? []).length > 0 && (
+                <div>
+                  <h4>To check: not in BC, but BC&apos;s numbers are past them ({plan.check.length})</h4>
+                  <p className="hint small">Left as they are unless you tick them. Tick one only after checking Business Central doesn&apos;t have it: it then gets one of BC&apos;s next numbers too.</p>
+                  <ul className="checklist">{plan.check.map((x) => { const k = `${x.kind}:${x.id}`; return (
+                    <li key={k} className={also.has(k) ? 'on' : ''}><label>
+                      <input type="checkbox" checked={also.has(k)} onChange={() => tick(k)} />
+                      <span className="lp-main"><span className="lp-narr"><strong>{x.doc_no}</strong> · {x.item}</span><span className="lp-meta"><span>{x.why}</span></span></span>
+                      <span className="num lp-amt">{lkr(x.total)}</span>
+                    </label></li>); })}</ul>
+                </div>
+              )}
+              <p className="match-sum">After this: next numbers <strong>{plan.app_next.BAKRC}</strong> and <strong>{plan.app_next.CSHRC}</strong>
+                {changes === 0 && ' · nothing to change'}.</p>
+              {(plan.renumber ?? []).some((x) => x.series === 'BAKRC') && <p className="warn-text small">Renumbered documents that were already exported must be exported again:
+                delete their old lines from the BC Cash Receipt Journal and import the new file.</p>}
+              {plan.errors.length === 0 && (<>
+                <label className="field"><span className="flabel">Where BC&apos;s next numbers come from</span>
+                  <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="E.g. checked the No. Series in BC on 9 Nov" /></label>
+                <button className="btn primary" disabled={busy || !note.trim()} onClick={apply}>{busy ? 'Applying…' : changes ? `Apply ${changes} change${changes === 1 ? '' : 's'}` : 'Set the next numbers'}</button>
+              </>)}
+            </div>
+          )}
         </div>
-      ))}
+      ) : <p className="muted small">A Finance Admin can match the numbers to Business Central.</p>}
       {msg && <p className="ok-text">{msg}</p>}
       {error && <p className="error">{error}</p>}
     </details>
   );
 }
+export const NumberSeries = MatchBc;
 
 // Finance: change several CSHRC (cash receipts) or BAKRC (bank receipts) numbers in one save,
 // e.g. when BC posted a run of receipts shifted by one number.

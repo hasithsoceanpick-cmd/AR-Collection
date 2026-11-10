@@ -339,7 +339,6 @@ export function CashDetail() {
   const { h, lines, error, load } = useHandover(id);
   const [counted, setCounted] = useState('');
   const [first, setFirst] = useState('');
-  const [bcOk, setBcOk] = useState(false);
   const [numState, setNumState] = useState({ app: 0, bc: 0 });
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -397,14 +396,15 @@ export function CashDetail() {
           <p className="hint">Count the cash. If it matches, receive it: each customer gets a CSHRC number (from the first one below) and the receipt is ready to print and sign.</p>
           <div className="row-2">
             <label className="field"><span className="flabel">Cash counted (LKR)</span><input inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={lkr(h.total)} /></label>
-            <label className="field"><span className="flabel">First CSHRC number</span><input inputMode="numeric" value={first} onChange={(e) => setFirst(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 541" />
-              {first && <span className="hint">CSHRC-{first.padStart(7, '0')}{n > 1 ? ` to CSHRC-${String(Number(first) + n - 1).padStart(7, '0')}` : ''}</span>}</label>
+            <div className="field"><span className="flabel">CSHRC numbers</span>
+              <strong>{first ? `CSHRC-${first.padStart(7, '0')}${n > 1 ? ` to CSHRC-${String(Number(first) + n - 1).padStart(7, '0')}` : ''}` : 'Not set'}</strong>
+              <span className="hint">The next numbers in Business Central&apos;s series, given when you receive it. Not BC&apos;s next number? Use <Link to="/bc-export#match-bc">Match BC numbers</Link>.</span></div>
           </div>
-          <NumberCheck code="CSHRC" first={first} count={n} bcOk={bcOk} setBcOk={setBcOk} onState={setNumState} />
+          <NumberCheck code="CSHRC" first={first} count={n} onState={setNumState} />
           {counted !== '' && Math.abs(Number(counted) - Number(h.total)) >= 0.005 && <p className="warn-text">That's LKR {lkr(Math.abs(Number(counted) - Number(h.total)))} {Number(counted) < Number(h.total) ? 'short' : 'over'}. Count again, or send it back.</p>}
           <div className="btn-row">
-            <button className="btn primary" disabled={busy || !first || counted === '' || Math.abs(Number(counted) - Number(h.total)) >= 0.005 || numState.app > 0 || (numState.bc > 0 && !bcOk)}
-              onClick={() => run(() => rpc('cc_cash_receive', { p_id: h.id, p_counted: Number(counted), p_first_cshrc: Number(first), p_bc_numbers_ok: bcOk }))}>Receive the cash</button>
+            <button className="btn primary" disabled={busy || !first || counted === '' || Math.abs(Number(counted) - Number(h.total)) >= 0.005 || numState.app > 0 || numState.bc > 0}
+              onClick={() => run(() => rpc('cc_cash_receive', { p_id: h.id, p_counted: Number(counted), p_first_cshrc: Number(first), p_bc_numbers_ok: false }))}>Receive the cash</button>
           </div>
           <label className="field"><span className="flabel">Or send it back to Sales</span><textarea rows="2" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What doesn't match" /></label>
           <button className="btn" disabled={busy || !reason.trim()} onClick={() => run(() => rpc('cc_cash_return', { p_id: h.id, p_reason: reason }))}>Send back</button>
@@ -428,13 +428,12 @@ export function CashDetail() {
 // Finance: a corrected cash receipt whose CSHRC was reversed in BC gets a new number.
 function NewCshrc({ l, onDone }) {
   const [no, setNo] = useState('');
-  const [bcOk, setBcOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => { db.from('doc_series').select('next_no').eq('code', 'CSHRC').maybeSingle().then(({ data }) => data?.next_no && setNo(String(data.next_no))); }, []);
   async function save() {
     setBusy(true); setErr('');
-    try { await rpc('cc_cash_new_number', { p_id: l.id, p_no: no, p_bc_numbers_ok: bcOk }); await onDone(); }
+    try { await rpc('cc_cash_new_number', { p_id: l.id, p_no: no, p_bc_numbers_ok: false }); await onDone(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   }
   return (
@@ -442,11 +441,10 @@ function NewCshrc({ l, onDone }) {
       <h2>{l.customer_name}: give it a new CSHRC number</h2>
       <p className="hint">Sales corrected it. {l.replaces_doc} is reversed, so it is exported under a new number, with &quot;Replaces {l.replaces_doc}&quot; in its Comment.</p>
       <div className="row">
-        <label className="field"><span className="flabel">New CSHRC number</span>
-          <input inputMode="numeric" value={no} onChange={(e) => setNo(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 580" />
-          {no && <span className="hint">CSHRC-{no.padStart(7, '0')}</span>}</label>
+        <div className="field"><span className="flabel">New CSHRC number</span>
+          <strong>{no ? `CSHRC-${no.padStart(7, '0')}` : 'Not set'}</strong>
+          <span className="hint">The next number in Business Central&apos;s series. Not BC&apos;s next? Use <Link to="/bc-export#match-bc">Match BC numbers</Link>.</span></div>
       </div>
-      {/already in Business Central/.test(err) && <label className="check"><input type="checkbox" checked={bcOk} onChange={(e) => setBcOk(e.target.checked)} /> Already posted in BC under this number: use it</label>}
       {err && <p className="error">{err}</p>}
       <button className="btn primary" disabled={busy || !no} onClick={save}>Save the number</button>
     </div>

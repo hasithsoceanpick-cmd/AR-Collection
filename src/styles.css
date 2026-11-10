@@ -785,6 +785,20 @@ td.num.out { color: var(--red); }
 .number-editor .search { flex: 1; min-width: 12rem; }
 .number-editor .ne-input { width: 8rem; }
 .nc-app { display: grid; gap: 0.2rem; }
+.export-bar .next-no { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; font-weight: 700; }
+.export-bar .next-no strong { font-size: 1.05rem; color: var(--navy); }
+.export-bar .next-no .muted { font-weight: 400; }
+.match-bc summary { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.match-bc .table-wrap { margin-top: 0.5rem; }
+.match-form { display: grid; gap: 0.5rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
+.match-form h3 { margin: 0; font-size: 1rem; }
+.match-form .row { gap: 0.6rem 1rem; align-items: flex-end; flex-wrap: wrap; }
+.match-form .inline-field { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; flex-wrap: wrap; }
+.match-form .inline-field input { width: 8rem; }
+.match-plan { display: grid; gap: 0.75rem; }
+.match-plan h4 { margin: 0.25rem 0; font-size: 0.9375rem; }
+.match-plan .checklist { max-height: 300px; }
+.match-sum { margin: 0; padding: 0.6rem 0.85rem; border-radius: 8px; background: #F7FAF7; }
 
 /* ---------- Admin overview: a card per bank account ---------- */
 .bank-cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); align-items: start; }

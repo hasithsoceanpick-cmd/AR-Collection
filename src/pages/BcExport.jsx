@@ -4,7 +4,7 @@ import { db, rpc } from '../lib/supabase';
 import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
-import { NumberCheck, NumberSeries, Renumber } from '../components/DocNumbers';
+import { NumberCheck, MatchBc, Renumber } from '../components/DocNumbers';
 import ChequeLines from '../components/ChequeLines';
 
 const ISSUE = {
@@ -24,6 +24,7 @@ const ISSUE = {
   payments_missing: { text: "Payments of this payout aren't in the app: upload a PayHere Payments export that covers it", block: true },
   invoice_gone: { text: 'An invoice on this payout is no longer open in the customer ledger (already settled?)', block: true },
   total_mismatch: { text: "The journal doesn't add up to the bank credit", block: true },
+  posted_under_old: { text: 'BC already has this posted under an earlier (reopened) number: not exported again. Match BC numbers removes the copy.', block: true },
 };
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -87,18 +88,26 @@ export default function BcExport() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [bcOk, setBcOk] = useState(false);
   const [numState, setNumState] = useState({ app: 0, bc: 0 });
+  const [status, setStatus] = useState(null);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [c0, m, p, s] = await Promise.all([rpc('cc_bc_candidates'), rpc('cc_bc_merchant_candidates'), rpc('cc_bc_payhere_candidates'),
-        db.from('doc_series').select('next_no').eq('code', 'BAKRC').maybeSingle()]);
-      const c = [...(c0 ?? []), ...(m ?? []), ...(p ?? [])].sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)));
-      setRows(c);
-      if (s.data?.next_no) setNextNo(String(s.data.next_no));
-      setSel(new Set((c ?? []).filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')).map((r) => r.key)));
+      const [c0, m, p, st, g] = await Promise.all([rpc('cc_bc_candidates'), rpc('cc_bc_merchant_candidates'), rpc('cc_bc_payhere_candidates'),
+        rpc('cc_doc_numbers_status'), rpc('cc_bc_export_guards')]);
+      // what BC already has under an earlier (reopened) number is never exported again
+      const posted = (r) => (g ?? []).find((x) => (r.batch_id && x.batch_id === r.batch_id) || (r.payout_id && x.payout_id === r.payout_id)
+        || (!r.batch_id && !r.payout_id && r.line_id && x.line_id === r.line_id));
+      const c = [...(c0 ?? []), ...(m ?? []), ...(p ?? [])].sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)))
+        .map((r) => { const o = posted(r); return o ? { ...r, posted_as: o.doc_no, built: { ...r.built, issues: [...(r.built.issues ?? []), 'posted_under_old'] } } : r; });
+      setRows(c); setStatus(st);
+      setNextNo(st?.BAKRC?.next_no ? String(st.BAKRC.next_no) : '');
+      // an exported document goes again only if its number is one BC hasn't used yet (else BC would refuse the whole file)
+      const start = st?.BAKRC?.start_no ?? 0;
+      const numOf = (no) => Number(String(no ?? '').replace(/\D/g, ''));
+      setSel(new Set(c.filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')
+        && (!r.doc_no || r.preassigned || !String(r.doc_no).startsWith('BAKRC-') || numOf(r.doc_no) >= start)).map((r) => r.key)));
     } catch (e) { setError(e.message); setRows([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -125,28 +134,14 @@ export default function BcExport() {
       const batchIds = picked.filter((r) => r.batch_id).map((r) => r.batch_id);
       const payoutIds = picked.filter((r) => r.payout_id).map((r) => r.payout_id);
       const ticked = (p) => [...unapplied].filter((x) => typeof x === 'string' && x.startsWith(p)).map((x) => Number(x.slice(1)));
-      let res = { docs: [], skipped: [], next_no: needsNew ? Number(nextNo) : null };
-      if (lineIds.length || cashIds.length) {
-        res = await rpc('cc_bc_export', {
-          p_line_ids: lineIds, p_first_no: needsNew ? Number(nextNo) : null,
-          p_unapplied_ok: [...unapplied].filter((x) => typeof x === 'number'), p_cash_ids: cashIds, p_bc_numbers_ok: bcOk,
-        });
-      }
-      if (batchIds.length) {
-        // merchant batches continue the BAKRC numbering after the bank-line documents
-        const m = await rpc('cc_bc_export_merchant', {
-          p_batch_ids: batchIds, p_first_no: res.next_no ?? (needsNew ? Number(nextNo) : null),
-          p_unapplied_ok: ticked('B'), p_bc_numbers_ok: bcOk,
-        });
-        res = { docs: [...res.docs, ...m.docs], skipped: [...res.skipped, ...m.skipped], next_no: m.next_no };
-      }
-      if (payoutIds.length) {
-        // PayHere payouts continue the BAKRC numbering after the rest
-        const p = await rpc('cc_bc_export_payhere', {
-          p_payout_ids: payoutIds, p_first_no: res.next_no ?? (needsNew ? Number(nextNo) : null), p_unapplied_ok: ticked('P'), p_bc_numbers_ok: bcOk,
-        });
-        res = { docs: [...res.docs, ...p.docs], skipped: [...res.skipped, ...p.skipped], next_no: p.next_no };
-      }
+      // one call: bank lines and cash, card batches, PayHere payouts; new documents get the next numbers one after
+      // another, and if anything fails nothing is numbered
+      const res = await rpc('cc_bc_export_all', {
+        p_line_ids: lineIds, p_cash_ids: cashIds, p_batch_ids: batchIds, p_payout_ids: payoutIds,
+        p_unapplied_lines: [...unapplied].filter((x) => typeof x === 'number'), p_unapplied_batches: ticked('B'), p_unapplied_payouts: ticked('P'),
+        p_first_no: Number(nextNo) || null,
+      });
+      res.docs = [...res.docs].sort((a, b) => String(a.doc_no).localeCompare(String(b.doc_no)));
       setResult(res);
       if (res.docs.length) await downloadJournal(res.docs, `BC Cash Receipt Journal ${res.docs[0].doc_no}${res.docs.length > 1 ? ` to ${res.docs[res.docs.length - 1].doc_no}` : ''} (${today()}).xlsx`);
       await load();
@@ -155,10 +150,12 @@ export default function BcExport() {
   const copy = async () => { await navigator.clipboard.writeText(journalText(result.docs)); setCopied(true); };
 
   if (rows === null) return <p className="muted">Loading…</p>;
+  const ns = status?.BAKRC ?? {};
+  const outOfLine = ns.behind || (ns.gaps ?? []).length > 0;
   const groups = [
     { key: 'new', title: 'Ready to export', list: rows.filter((r) => (!r.doc_no || r.preassigned) && !blocked(r)) },
-    { key: 'again', title: 'Exported but not in BC yet', hint: 'BC doesn\'t show these yet. Export again with the same numbers if they weren\'t posted.', list: rows.filter((r) => r.doc_no && !r.preassigned) },
-    { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => (!r.doc_no || r.preassigned) && blocked(r)) },
+    { key: 'again', title: 'Exported but not in BC yet', hint: 'BC doesn\'t show these yet. They go again with their numbers (ticked when the number is one BC hasn\'t used yet).', list: rows.filter((r) => r.doc_no && !r.preassigned && !blocked(r)) },
+    { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => blocked(r)) },
   ];
 
   return (
@@ -166,7 +163,7 @@ export default function BcExport() {
       <div className="page-head"><h1>Export to BC</h1></div>
       <p className="lede">Closed receipts matched to a bank line (one BAKRC number per bank line, the bank as balancing account), HNB card batches (one BAKRC per batch: customers at the full card amount, the 3% commission to G/L 204003, Amana as balancing account),
         PayHere payouts (one BAKRC per payout: customers applied to their invoices, Round Island parts to G/L 102030 RI Current Account, the PayHere fee to G/L 204003, Sampath 590 as balancing account),
-        and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. A document keeps its number when exported again; if BC posted it under another number, use Change number so the app matches BC.</p>
+        and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. New documents get Business Central's next BAKRC numbers, one after another, when the file is made; a document keeps its number when exported again. If BC posted one under another number, use Change number; if BC's next number differs, use Match BC numbers below.</p>
       {error && <p className="error">{error}</p>}
 
       {result && (
@@ -178,7 +175,7 @@ export default function BcExport() {
             {result.docs.length > 0 && <button className="btn primary" onClick={copy}>{copied ? 'Copied' : 'Copy journal lines'}</button>}
             {result.docs.length > 0 && <button className="btn" onClick={() => downloadJournal(result.docs, `BC Cash Receipt Journal (${today()}).xlsx`)}>Download again</button>}
           </div>
-          {result.skipped.length > 0 && <p className="warn-text">{result.skipped.length} line(s) were not exported: {result.skipped.map((s) => s.issues.join(', ')).join('; ')}.</p>}
+          {result.skipped.length > 0 && <p className="warn-text">{result.skipped.length} line(s) were not exported: {result.skipped.map((s) => s.issues.map((i) => (i === 'posted_under_old' ? `BC has it as ${s.doc_no}` : ISSUE[i]?.text ?? i)).join(', ')).join('; ')}.</p>}
           <p className="hint">After posting in BC, upload the bank and customer ledgers on <Link to="/bc-check">BC check</Link> to confirm.</p>
         </div>
       )}
@@ -186,14 +183,16 @@ export default function BcExport() {
       {rows.length === 0 ? <p className="muted">Nothing to export: every closed receipt is confirmed posted.</p> : (
         <>
           <div className="facts export-bar">
-            <label>First new BAKRC number
-              <input inputMode="numeric" value={nextNo} onChange={(e) => setNextNo(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 2557" />
-            </label>
-            <p className="hint">{needsNew ? <>New numbers start at <strong>BAKRC-{String(nextNo || '0').padStart(7, '0')}</strong>. Check it's the next free number in BC.</> : 'The selected documents already have their numbers.'}</p>
-            {needsNew && <NumberCheck code="BAKRC" first={nextNo} count={newCount} bcOk={bcOk} setBcOk={setBcOk} onState={setNumState} />}
+            <div className="next-no">Next BAKRC number <strong>{ns.next ?? 'not set'}</strong>
+              <span className="muted small">{ns.bc_next ? `follows Business Central (BC's next ${ns.bc_next} confirmed ${fmtDate(ns.bc_synced_at)}${ns.bc_synced_by ? ` by ${ns.bc_synced_by}` : ''})` : 'set it from Business Central with Match BC numbers'}</span></div>
+            <p className="hint">{needsNew ? <>{newCount} new document{newCount === 1 ? '' : 's'}: {ns.next}{newCount > 1 ? ` to BAKRC-${String(Number(nextNo) + newCount - 1).padStart(7, '0')}` : ''}, given when the file is made.
+              Not BC&apos;s next number? <a href="#match-bc">Match BC numbers</a>.</> : 'The selected documents already have their numbers.'}</p>
+            {outOfLine && <p className="error small">The app&apos;s numbers are out of line with Business Central{ns.behind ? ` (BC's ledgers already have ${ns.bc_max})` : ` (no receipt holds ${ns.gaps.slice(0, 3).join(', ')})`}: BC would refuse the file. <a href="#match-bc">Match BC numbers</a> first.</p>}
+            {(ns.below ?? []).length > 0 && <p className="warn-text small">Not ticked: {ns.below.map((b) => b.doc_no).join(', ')} {ns.below.length === 1 ? 'is' : 'are'} not in BC, but BC is past {ns.below.length === 1 ? 'that number' : 'those numbers'}. See <a href="#match-bc">Match BC numbers</a>.</p>}
+            {needsNew && <NumberCheck code="BAKRC" first={nextNo} count={newCount} onState={setNumState} />}
             <div className="export-go">
               <span>{sel.size} document{sel.size === 1 ? '' : 's'} · LKR {lkr(selTotal)}</span>
-              <button className="btn primary" disabled={busy || role !== 'finance' || sel.size === 0 || (needsNew && (!nextNo || numState.app > 0 || (numState.bc > 0 && !bcOk)))} onClick={doExport}>{busy ? 'Exporting…' : 'Export to Excel'}</button>
+              <button className="btn primary" disabled={busy || role !== 'finance' || sel.size === 0 || (needsNew && (!nextNo || outOfLine || numState.app > 0 || numState.bc > 0))} onClick={doExport}>{busy ? 'Exporting…' : 'Export to Excel'}</button>
             </div>
           </div>
 
@@ -225,7 +224,8 @@ export default function BcExport() {
                                 {i === 'no_invoices' && <label className="check inline"><input type="checkbox" checked={unapplied.has(uid(r))} disabled={role !== 'finance'} onChange={() => toggleUnapplied(r)} /> Export unapplied</label>}
                                 {i === 'cheque_map' && role === 'finance' && <button className="link" onClick={() => setMapDeposit(r.deposit_id)}>Choose</button>}
                                 {i === 'needs_split' && <> · {r.collection_id ? <Link to={`/c/${r.collection_id}`}>open</Link> : 'ask Sales'}</>}
-                                {r.payout_id && i !== 'no_invoices' && <> · <Link to={`/payhere?payout=${r.payout_id}`}>open</Link></>}
+                                {i === 'posted_under_old' && r.posted_as && <> ({r.posted_as}{r.doc_no ? `; ${r.doc_no} is the copy` : ''})</>}
+                                {r.payout_id && i !== 'no_invoices' && i !== 'posted_under_old' && <> · <Link to={`/payhere?payout=${r.payout_id}`}>open</Link></>}
                               </div>)}
                             </td>
                             <td className="num">{lkr(r.credit)}</td>
@@ -253,7 +253,7 @@ export default function BcExport() {
           ))}
         </>
       )}
-      {role === 'finance' && <NumberSeries />}
+      {['finance', 'executive'].includes(role) && <MatchBc onDone={load} />}
       {mapDeposit && <ChequeMap depositId={mapDeposit} admin={isAdmin && role === 'finance'} onDone={() => { setMapDeposit(null); load(); }} />}
     </section>
   );
