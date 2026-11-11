@@ -799,6 +799,13 @@ td.num.out { color: var(--red); }
 .match-plan h4 { margin: 0.25rem 0; font-size: 0.9375rem; }
 .match-plan .checklist { max-height: 300px; }
 .match-sum { margin: 0; padding: 0.6rem 0.85rem; border-radius: 8px; background: #F7FAF7; }
+.close-month .row { gap: 0.6rem 1rem; align-items: flex-end; flex-wrap: wrap; }
+.close-month .inline-field { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+.close-month .inline-field select { width: auto; min-width: 12rem; }
+.close-month .checklist { max-height: 360px; }
+.close-month .lp-main .muted.small { display: block; margin-top: 0.15rem; }
+.close-history { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
+.close-history li { margin-bottom: 0.5rem; }
 
 /* ---------- Admin overview: a card per bank account ---------- */
 .bank-cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); align-items: start; }

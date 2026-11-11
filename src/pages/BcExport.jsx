@@ -5,6 +5,7 @@ import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
 import { NumberCheck, MatchBc, Renumber } from '../components/DocNumbers';
+import CloseMonth from '../components/CloseMonth';
 import ChequeLines from '../components/ChequeLines';
 
 const ISSUE = {
@@ -253,6 +254,7 @@ export default function BcExport() {
           ))}
         </>
       )}
+      {['finance', 'executive'].includes(role) && <CloseMonth onDone={load} />}
       {['finance', 'executive'].includes(role) && <MatchBc onDone={load} />}
       {mapDeposit && <ChequeMap depositId={mapDeposit} admin={isAdmin && role === 'finance'} onDone={() => { setMapDeposit(null); load(); }} />}
     </section>
