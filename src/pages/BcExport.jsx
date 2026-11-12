@@ -4,9 +4,13 @@ import { db, rpc } from '../lib/supabase';
 import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
-import { NumberCheck, MatchBc, Renumber } from '../components/DocNumbers';
+import { MatchBc, Renumber } from '../components/DocNumbers';
 import CloseMonth from '../components/CloseMonth';
 import ChequeLines from '../components/ChequeLines';
+
+const numOf = (no) => Number(String(no ?? '').replace(/\D/g, ''));
+// exported before under a BAKRC number, not posted yet (goes again)
+const isAgain = (r) => Boolean(r.doc_no && !r.preassigned && String(r.doc_no).startsWith('BAKRC-'));
 
 const ISSUE = {
   needs_split: { text: "Waiting for Sales' cheque split", block: true },
@@ -77,6 +81,27 @@ function ChequeMap({ depositId, onDone, admin }) {
   );
 }
 
+// What typing BC's next number changes, shown before Export is pressed.
+function LineUp({ plan }) {
+  if (!plan) return null;
+  const { errors = [], relabel = [], freed = [], renumber = [], below = [] } = plan;
+  if (!errors.length && !relabel.length && !freed.length && !renumber.length && !below.length) return null;
+  return (
+    <div className="line-up">
+      {errors.map((e) => <p key={e} className="error small">{e}</p>)}
+      {relabel.length > 0 && <div><strong>Counted as posted, but BC can&apos;t have {relabel.length === 1 ? 'it' : 'them'} under {relabel.length === 1 ? 'that number' : 'those numbers'}:</strong>
+        <ul className="plain small">{relabel.map((x) => <li key={x.id}><strong>{x.doc_no}</strong> → <strong>{x.new}</strong> · {x.item} · LKR {lkr(x.total)}<div className="muted">{x.why}</div></li>)}</ul></div>}
+      {renumber.length > 0 && <div><strong>Exported before, not posted: {renumber.length === 1 ? 'goes' : 'go'} in this file under BC&apos;s next number{renumber.length === 1 ? '' : 's'}:</strong>
+        <ul className="plain small">{renumber.map((x) => <li key={x.id}><strong>{x.old}</strong> → <strong>{x.new}</strong> · {x.item} · LKR {lkr(x.total)}</li>)}</ul>
+        <p className="warn-text small">If their old lines are still in BC&apos;s Cash Receipt Journal, delete them before importing this file.</p></div>}
+      {freed.length > 0 && <div><strong>Number{freed.length === 1 ? '' : 's'} given back (BC never had {freed.length === 1 ? 'it' : 'them'}):</strong>
+        <ul className="plain small">{freed.map((x) => <li key={x.id}><strong>{x.doc_no}</strong> · {x.item} · LKR {lkr(x.total)}<div className="muted">{x.why}</div></li>)}</ul></div>}
+      {below.length > 0 && <p className="warn-text small">Ticked though BC is past {below.length === 1 ? 'its number' : 'their numbers'}: {below.map((x) => x.doc_no).join(', ')}.
+        Export {below.length === 1 ? 'it' : 'them'} again only if Business Central doesn&apos;t have {below.length === 1 ? 'it' : 'them'} (if it does, upload the latest ledgers on BC check instead).</p>}
+    </div>
+  );
+}
+
 export default function BcExport() {
   const { role, isAdmin } = useAuth();
   const [rows, setRows] = useState(null);
@@ -89,8 +114,10 @@ export default function BcExport() {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [numState, setNumState] = useState({ app: 0, bc: 0 });
   const [status, setStatus] = useState(null);
+  const [bcNext, setBcNext] = useState('');     // Business Central's next BAKRC number, as finance types it
+  const [plan, setPlan] = useState(null);
+  const [planBusy, setPlanBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -103,19 +130,44 @@ export default function BcExport() {
       const c = [...(c0 ?? []), ...(m ?? []), ...(p ?? [])].sort((a, b) => String(a.txn_date).localeCompare(String(b.txn_date)))
         .map((r) => { const o = posted(r); return o ? { ...r, posted_as: o.doc_no, built: { ...r.built, issues: [...(r.built.issues ?? []), 'posted_under_old'] } } : r; });
       setRows(c); setStatus(st);
-      setNextNo(st?.BAKRC?.next_no ? String(st.BAKRC.next_no) : '');
-      // an exported document goes again only if its number is one BC hasn't used yet (else BC would refuse the whole file)
-      const start = st?.BAKRC?.start_no ?? 0;
-      const numOf = (no) => Number(String(no ?? '').replace(/\D/g, ''));
+      const next = st?.BAKRC?.next_no ? String(st.BAKRC.next_no) : '';
+      setNextNo(next); setBcNext(next);
+      // an exported document goes again only if BC hasn't reached its number (else BC has it, or would refuse the file)
       setSel(new Set(c.filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')
-        && (!r.doc_no || r.preassigned || !String(r.doc_no).startsWith('BAKRC-') || numOf(r.doc_no) >= start)).map((r) => r.key)));
+        && (!isAgain(r) || numOf(r.doc_no) >= Number(next || 0))).map((r) => r.key)));
     } catch (e) { setError(e.message); setRows([]); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // typing BC's next number: documents exported before are ticked when BC hasn't reached their number
+  const typeBcNext = (v) => {
+    setBcNext(v);
+    const n = Number(v);
+    if (!n) return;
+    setSel((s) => { const out = new Set(s); (rows ?? []).filter((r) => isAgain(r) && !blocked(r)).forEach((r) => (numOf(r.doc_no) >= n ? out.add(r.key) : out.delete(r.key))); return out; });
+  };
+
   const blocked = (r) => (r.built.issues ?? []).some((i) => ISSUE[i]?.block);
   const newCount = useMemo(() => (rows ?? []).filter((r) => sel.has(r.key) && !r.doc_no).length, [rows, sel]);
-  const needsNew = newCount > 0;
+  // the picked items that need BAKRC numbers (everything but cash receipts, which have CSHRC numbers)
+  const picks = useMemo(() => {
+    const p = (rows ?? []).filter((r) => sel.has(r.key));
+    return { lines: p.filter((r) => r.line_id && !r.batch_id && !r.payout_id && !r.cash_id).map((r) => r.line_id),
+      batches: p.filter((r) => r.batch_id).map((r) => r.batch_id), payouts: p.filter((r) => r.payout_id).map((r) => r.payout_id) };
+  }, [rows, sel]);
+  const needsNumbers = picks.lines.length + picks.batches.length + picks.payouts.length > 0;
+  useEffect(() => {
+    setPlan(null);
+    if (!needsNumbers || !Number(bcNext) || !['finance', 'executive'].includes(role)) return undefined;
+    setPlanBusy(true);
+    let live = true;
+    const t = setTimeout(() => {
+      rpc('cc_bc_export_plan', { p_bc_next: Number(bcNext), p_line_ids: picks.lines, p_batch_ids: picks.batches, p_payout_ids: picks.payouts })
+        .then((p) => { if (live) setPlan(p); }).catch((e) => { if (live) setPlan({ errors: [e.message] }); })
+        .finally(() => { if (live) setPlanBusy(false); });
+    }, 350);
+    return () => { live = false; clearTimeout(t); };
+  }, [bcNext, picks, needsNumbers, role]);
   const selTotal = (rows ?? []).filter((r) => sel.has(r.key)).reduce((a, r) => a + Number(r.credit), 0);
   // unapplied ticks: bank lines by id, cash receipts as negative ids, merchant batches as 'B<id>', PayHere payouts as 'P<id>'
   const uid = (r) => (r.batch_id ? `B${r.batch_id}` : r.payout_id ? `P${r.payout_id}` : r.cash_id ? -r.cash_id : r.line_id);
@@ -130,17 +182,17 @@ export default function BcExport() {
     setBusy(true); setError(''); setResult(null); setCopied(false);
     try {
       const picked = (rows ?? []).filter((r) => sel.has(r.key));
-      const lineIds = picked.filter((r) => r.line_id && !r.batch_id && !r.payout_id).map((r) => r.line_id);
+      const lineIds = picked.filter((r) => r.line_id && !r.batch_id && !r.payout_id && !r.cash_id).map((r) => r.line_id);
       const cashIds = picked.filter((r) => r.cash_id).map((r) => r.cash_id);
       const batchIds = picked.filter((r) => r.batch_id).map((r) => r.batch_id);
       const payoutIds = picked.filter((r) => r.payout_id).map((r) => r.payout_id);
       const ticked = (p) => [...unapplied].filter((x) => typeof x === 'string' && x.startsWith(p)).map((x) => Number(x.slice(1)));
-      // one call: bank lines and cash, card batches, PayHere payouts; new documents get the next numbers one after
-      // another, and if anything fails nothing is numbered
+      // one call: bank lines and cash, card batches, PayHere payouts. The file starts at BC's next number as typed;
+      // the app lines its numbers up with it in the same step, and if anything fails nothing changes
       const res = await rpc('cc_bc_export_all', {
         p_line_ids: lineIds, p_cash_ids: cashIds, p_batch_ids: batchIds, p_payout_ids: payoutIds,
         p_unapplied_lines: [...unapplied].filter((x) => typeof x === 'number'), p_unapplied_batches: ticked('B'), p_unapplied_payouts: ticked('P'),
-        p_first_no: Number(nextNo) || null,
+        p_first_no: Number(nextNo) || null, p_bc_next: needsNumbers ? Number(bcNext) || null : null,
       });
       res.docs = [...res.docs].sort((a, b) => String(a.doc_no).localeCompare(String(b.doc_no)));
       setResult(res);
@@ -152,10 +204,14 @@ export default function BcExport() {
 
   if (rows === null) return <p className="muted">Loading…</p>;
   const ns = status?.BAKRC ?? {};
-  const outOfLine = ns.behind || (ns.gaps ?? []).length > 0;
+  const typed = Number(bcNext) || 0;
+  const numbered = (plan?.kept ?? 0) + newCount;
+  const untickedBelow = rows.filter((r) => isAgain(r) && !blocked(r) && !sel.has(r.key) && typed && numOf(r.doc_no) < typed);
+  const lined = result?.lined_up;
+  const linedCount = lined ? (lined.relabel?.length ?? 0) + (lined.freed?.length ?? 0) + (lined.renumber?.length ?? 0) : 0;
   const groups = [
     { key: 'new', title: 'Ready to export', list: rows.filter((r) => (!r.doc_no || r.preassigned) && !blocked(r)) },
-    { key: 'again', title: 'Exported but not in BC yet', hint: 'BC doesn\'t show these yet. They go again with their numbers (ticked when the number is one BC hasn\'t used yet).', list: rows.filter((r) => r.doc_no && !r.preassigned && !blocked(r)) },
+    { key: 'again', title: 'Exported but not in BC yet', hint: 'BC doesn\'t show these yet. They go again under BC\'s next numbers (ticked when BC hasn\'t reached their number).', list: rows.filter((r) => r.doc_no && !r.preassigned && !blocked(r)) },
     { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => blocked(r)) },
   ];
 
@@ -164,7 +220,7 @@ export default function BcExport() {
       <div className="page-head"><h1>Export to BC</h1></div>
       <p className="lede">Closed receipts matched to a bank line (one BAKRC number per bank line, the bank as balancing account), HNB card batches (one BAKRC per batch: customers at the full card amount, the 3% commission to G/L 204003, Amana as balancing account),
         PayHere payouts (one BAKRC per payout: customers applied to their invoices, Round Island parts to G/L 102030 RI Current Account, the PayHere fee to G/L 204003, Sampath 590 as balancing account),
-        and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. New documents get Business Central's next BAKRC numbers, one after another, when the file is made; a document keeps its number when exported again. If BC posted one under another number, use Change number; if BC's next number differs, use Match BC numbers below.</p>
+        and received cash handovers (one CSHRC number per customer, balancing account 103700 Cash In Hand). One journal line per invoice from Sales' instructions. Type Business Central&apos;s next BAKRC number next to Export: the file starts at that number and runs on with no gap, and the app lines its own numbers up with it. If BC posted a document under another number, use Change number.</p>
       {error && <p className="error">{error}</p>}
 
       {result && (
@@ -172,6 +228,11 @@ export default function BcExport() {
           <h2>Exported {result.docs.length} document{result.docs.length === 1 ? '' : 's'}</h2>
           {result.docs.length > 0 && <p>{result.docs[0].doc_no}{result.docs.length > 1 ? ` to ${result.docs[result.docs.length - 1].doc_no}` : ''}: the Excel file has downloaded.
             Paste it into the BC Cash Receipt Journal, or copy the lines here and paste into the journal page (same column order).</p>}
+          {linedCount > 0 && <p className="hint">Lined up with Business Central&apos;s next number {lined.bc_next}: {[
+            lined.renumber?.length && `${lined.renumber.length} exported before went again under new numbers`,
+            lined.relabel?.length && `${lined.relabel.length} counted as posted ${lined.relabel.length === 1 ? 'was' : 'were'} relabelled (${lined.relabel.map((x) => `${x.doc_no} → ${x.new}`).join(', ')})`,
+            lined.freed?.length && `${lined.freed.length} number${lined.freed.length === 1 ? '' : 's'} given back (${lined.freed.map((x) => x.doc_no).join(', ')})`,
+          ].filter(Boolean).join('; ')}.</p>}
           <div className="btn-row">
             {result.docs.length > 0 && <button className="btn primary" onClick={copy}>{copied ? 'Copied' : 'Copy journal lines'}</button>}
             {result.docs.length > 0 && <button className="btn" onClick={() => downloadJournal(result.docs, `BC Cash Receipt Journal (${today()}).xlsx`)}>Download again</button>}
@@ -184,16 +245,23 @@ export default function BcExport() {
       {rows.length === 0 ? <p className="muted">Nothing to export: every closed receipt is confirmed posted.</p> : (
         <>
           <div className="facts export-bar">
-            <div className="next-no">Next BAKRC number <strong>{ns.next ?? 'not set'}</strong>
-              <span className="muted small">{ns.bc_next ? `follows Business Central (BC's next ${ns.bc_next} confirmed ${fmtDate(ns.bc_synced_at)}${ns.bc_synced_by ? ` by ${ns.bc_synced_by}` : ''})` : 'set it from Business Central with Match BC numbers'}</span></div>
-            <p className="hint">{needsNew ? <>{newCount} new document{newCount === 1 ? '' : 's'}: {ns.next}{newCount > 1 ? ` to BAKRC-${String(Number(nextNo) + newCount - 1).padStart(7, '0')}` : ''}, given when the file is made.
-              Not BC&apos;s next number? <a href="#match-bc">Match BC numbers</a>.</> : 'The selected documents already have their numbers.'}</p>
-            {outOfLine && <p className="error small">The app&apos;s numbers are out of line with Business Central{ns.behind ? ` (BC's ledgers already have ${ns.bc_max})` : ` (no receipt holds ${ns.gaps.slice(0, 3).join(', ')})`}: BC would refuse the file. <a href="#match-bc">Match BC numbers</a> first.</p>}
-            {(ns.below ?? []).length > 0 && <p className="warn-text small">Not ticked: {ns.below.map((b) => b.doc_no).join(', ')} {ns.below.length === 1 ? 'is' : 'are'} not in BC, but BC is past {ns.below.length === 1 ? 'that number' : 'those numbers'}. See <a href="#match-bc">Match BC numbers</a>.</p>}
-            {needsNew && <NumberCheck code="BAKRC" first={nextNo} count={newCount} onState={setNumState} />}
+            <div className="next-no">
+              <label>BC&apos;s next BAKRC number
+                <input inputMode="numeric" value={bcNext} onChange={(e) => typeBcNext(e.target.value.replace(/\D/g, ''))} disabled={role !== 'finance'}
+                  aria-label="Business Central's next BAKRC number" placeholder="e.g. 2728" /></label>
+              <span className="muted small">From the No. Series in Business Central (Cash Receipt Journal). The app&apos;s next: {ns.next ?? 'not set'}
+                {ns.bc_max ? ` · highest in BC's ledgers: ${ns.bc_max}` : ''}{ns.bc_next ? ` · last typed: ${ns.bc_next}, ${fmtDate(ns.bc_synced_at)}${ns.bc_synced_by ? ` by ${ns.bc_synced_by}` : ''}` : ''}</span>
+            </div>
+            <p className="hint">{!needsNumbers ? 'The selected documents need no BAKRC number.'
+              : !typed ? 'Type BC\'s next BAKRC number: the file starts there.'
+              : planBusy || !plan ? 'Checking the numbers…'
+              : numbered > 0 ? <>{numbered} document{numbered === 1 ? '' : 's'} in this file: <strong>{plan.bc_next}</strong>{numbered > 1 ? <> to <strong>BAKRC-{String(typed + numbered - 1).padStart(7, '0')}</strong></> : null}, one after another.</> : null}</p>
+            {needsNumbers && typed > 0 && <LineUp plan={plan} />}
+            {untickedBelow.length > 0 && <p className="warn-text small">Not ticked: {untickedBelow.map((r) => r.doc_no).join(', ')}. BC is past {untickedBelow.length === 1 ? 'that number' : 'those numbers'},
+              so BC probably has {untickedBelow.length === 1 ? 'it' : 'them'}: upload the latest ledgers on <Link to="/bc-check">BC check</Link>. Tick one only if Business Central doesn&apos;t have it.</p>}
             <div className="export-go">
               <span>{sel.size} document{sel.size === 1 ? '' : 's'} · LKR {lkr(selTotal)}</span>
-              <button className="btn primary" disabled={busy || role !== 'finance' || sel.size === 0 || (needsNew && (!nextNo || outOfLine || numState.app > 0 || numState.bc > 0))} onClick={doExport}>{busy ? 'Exporting…' : 'Export to Excel'}</button>
+              <button className="btn primary" disabled={busy || role !== 'finance' || sel.size === 0 || (needsNumbers && (!typed || planBusy || !plan || (plan.errors ?? []).length > 0))} onClick={doExport}>{busy ? 'Exporting…' : 'Export to Excel'}</button>
             </div>
           </div>
 

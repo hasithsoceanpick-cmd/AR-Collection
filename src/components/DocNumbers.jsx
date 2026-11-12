@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth';
 
 // The numbers a receive or an export is about to use: which are taken. Numbers come from the series (BC's next numbers);
 // a clash means the app and BC are out of line, which Match BC numbers fixes.
-export function NumberCheck({ code, first, count, onState }) {
+export function NumberCheck({ code, first, count, onState, hint = null }) {
   const [rows, setRows] = useState([]);
   const [tick, setTick] = useState(0);   // checks again after a number is changed from here
   useEffect(() => {
@@ -25,8 +25,8 @@ export function NumberCheck({ code, first, count, onState }) {
     <div className="number-check">
       {app.map((r) => <p key={r.no} className="error small">{r.no} is already held in the app by {r.app}.</p>)}
       {bc.map((r) => <p key={r.no} className="error small">{r.no} is already in Business Central: {r.bc}.</p>)}
-      <p className="hint small">The app and Business Central are out of line. <a href="#match-bc" onClick={() => setTick((n) => n + 1)}>Match BC numbers</a> lines them up
-        (a Finance Admin enters BC&apos;s next numbers).</p>
+      {hint ? <p className="hint small">{hint}</p> : <p className="hint small">The app and Business Central are out of line. <a href="#match-bc" onClick={() => setTick((n) => n + 1)}>Match BC numbers</a> lines them up
+        (a Finance Admin enters BC&apos;s next numbers).</p>}
     </div>
   );
 }
@@ -68,6 +68,7 @@ export function Renumber({ kind = null, id = null, docNo = null, onDone, label =
 // Finance: where the app's numbers stand against Business Central, and (Finance Admin) lining them up:
 // enter BC's next BAKRC and CSHRC numbers, preview what changes, apply.
 const SECTIONS = [
+  { key: 'relabel', title: "Counted as posted, but BC can't have them under these numbers: BC's own number, or a CLOSED- label", cols: ['Now', 'Becomes', 'What', 'LKR'] },
   { key: 'duplicates', title: 'Copies removed: BC already has these under the earlier number', cols: ['Copy', 'Restored', 'What', 'LKR'] },
   { key: 'freed', title: 'Numbers freed: sent back, reopened or cancelled, and BC never had them', cols: ['Number', '', 'What', 'LKR'] },
   { key: 'renumber', title: "Renumbered to BC's next numbers (not posted in BC yet)", cols: ['Now', 'Becomes', 'What', 'LKR'] },
@@ -117,7 +118,7 @@ export function MatchBc({ open: startOpen = false, onDone }) {
     setBusy(true); setError(''); setMsg('');
     try {
       const r = await rpc('cc_doc_numbers_sync', args(true));
-      const n = (r.renumber?.length ?? 0) + (r.duplicates?.length ?? 0) + (r.freed?.length ?? 0);
+      const n = (r.renumber?.length ?? 0) + (r.duplicates?.length ?? 0) + (r.freed?.length ?? 0) + (r.relabel?.length ?? 0);
       setMsg(`Done: ${n} change${n === 1 ? '' : 's'}. Next numbers: ${r.app_next.BAKRC} and ${r.app_next.CSHRC}.${r.unique_note ? ` ${r.unique_note}` : ''}`);
       setPlan(null); setAlso(new Set()); setNote('');
       await load(); await onDone?.();
@@ -128,16 +129,15 @@ export function MatchBc({ open: startOpen = false, onDone }) {
   const toCheck = (s) => Boolean(s && (s.below ?? []).length > 0);
   const anyOut = status && (out(status.BAKRC) || out(status.CSHRC));
   const anyCheck = status && (toCheck(status.BAKRC) || toCheck(status.CSHRC));
-  const changes = plan ? (plan.renumber?.length ?? 0) + (plan.duplicates?.length ?? 0) + (plan.freed?.length ?? 0) : 0;
+  const changes = plan ? (plan.renumber?.length ?? 0) + (plan.duplicates?.length ?? 0) + (plan.freed?.length ?? 0) + (plan.relabel?.length ?? 0) : 0;
   const tick = (k) => setAlso((a) => { const n = new Set(a); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   return (
     <details className="facts match-bc" id="match-bc" open={open} ref={box} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>Numbers and Business Central{anyOut ? <span className="pill bad">out of line</span> : anyCheck ? <span className="pill warn">in line · some to check</span>
         : status ? <span className="pill ok">in line</span> : null}</summary>
-      <p className="hint">BAKRC and CSHRC numbers follow Business Central&apos;s No. Series: the app gives the next numbers only when it makes the documents (export)
-        or receives cash, and a failed step gives none. If BC&apos;s next number is different (something was posted in BC by hand, or a file wasn&apos;t posted),
-        match it here.</p>
+      <p className="hint">BAKRC and CSHRC numbers follow Business Central&apos;s No. Series. Export to BC takes the BAKRC number you type next to its Export button
+        and lines the app&apos;s numbers up with it, and Cash takes the CSHRC number you type when receiving. Use this only to line both series up without exporting.</p>
       {status && (
         <div className="table-wrap flat"><table className="table small">
           <thead><tr><th>Series</th><th>App&apos;s next</th><th>BC&apos;s next (confirmed)</th><th>Highest in BC ledgers</th><th>Out of line</th></tr></thead>
@@ -174,9 +174,9 @@ export function MatchBc({ open: startOpen = false, onDone }) {
                   <div className="table-wrap flat"><table className="table small">
                     <thead><tr>{sec.cols.map((c) => <th key={c} className={c === 'LKR' ? 'num' : ''}>{c}</th>)}</tr></thead>
                     <tbody>{plan[sec.key].map((x) => (
-                      <tr key={`${sec.key}-${x.doc_no ?? x.old}`}>
+                      <tr key={`${sec.key}-${x.id ?? x.collection_id ?? ''}-${x.doc_no ?? x.old}`}>
                         <td><strong>{x.doc_no ?? x.old}</strong></td>
-                        <td>{sec.key === 'renumber' ? <strong>{x.new}</strong> : x.restore_no ?? ''}</td>
+                        <td>{sec.key === 'renumber' || sec.key === 'relabel' ? <strong>{x.new}</strong> : x.restore_no ?? ''}</td>
                         <td>{x.item}<div className="muted small">{x.why}</div></td>
                         <td className="num">{x.total != null ? lkr(x.total) : ''}</td>
                       </tr>))}</tbody>

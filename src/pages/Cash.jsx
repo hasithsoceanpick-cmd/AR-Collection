@@ -344,7 +344,8 @@ export function CashDetail() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [backId, setBackId] = useState(null);
-  useEffect(() => { if (role === 'finance') db.from('doc_series').select('next_no').eq('code', 'CSHRC').maybeSingle().then(({ data }) => data?.next_no && setFirst(String(data.next_no))); }, [role]);
+  // the CSHRC number offered: the next one neither BC's ledgers nor the app has used (finance can type BC's next one)
+  useEffect(() => { if (role === 'finance') rpc('cc_doc_numbers_status').then((s) => { const n = s?.CSHRC?.free_next ?? s?.CSHRC?.next_no; if (n) setFirst(String(n)); }).catch(() => {}); }, [role]);
   if (h === undefined) return <p className="muted">Loading…</p>;
   if (!h) return <div className="empty"><p>{error || "This handover isn't available to you."}</p><Link to="/cash">Back to cash handovers</Link></div>;
   const live = lines.filter((l) => l.status !== 'cancelled' || h.status === 'cancelled');
@@ -396,11 +397,11 @@ export function CashDetail() {
           <p className="hint">Count the cash. If it matches, receive it: each customer gets a CSHRC number (from the first one below) and the receipt is ready to print and sign.</p>
           <div className="row-2">
             <label className="field"><span className="flabel">Cash counted (LKR)</span><input inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={lkr(h.total)} /></label>
-            <div className="field"><span className="flabel">CSHRC numbers</span>
-              <strong>{first ? `CSHRC-${first.padStart(7, '0')}${n > 1 ? ` to CSHRC-${String(Number(first) + n - 1).padStart(7, '0')}` : ''}` : 'Not set'}</strong>
-              <span className="hint">The next numbers in Business Central&apos;s series, given when you receive it. Not BC&apos;s next number? Use <Link to="/bc-export#match-bc">Match BC numbers</Link>.</span></div>
+            <label className="field"><span className="flabel">First CSHRC number (BC&apos;s next)</span>
+              <input inputMode="numeric" value={first} onChange={(e) => setFirst(e.target.value.replace(/\D/g, ''))} aria-label="First CSHRC number" placeholder="e.g. 591" />
+              <span className="hint">{first ? `CSHRC-${first.padStart(7, '0')}${n > 1 ? ` to CSHRC-${String(Number(first) + n - 1).padStart(7, '0')}` : ''}. ` : ''}Offered: the next number neither BC nor the app has used. If BC&apos;s No. Series says otherwise, type its next number.</span></label>
           </div>
-          <NumberCheck code="CSHRC" first={first} count={n} onState={setNumState} />
+          <NumberCheck code="CSHRC" first={first} count={n} onState={setNumState} hint="Type a CSHRC number nobody has used yet: Business Central's next number from its No. Series." />
           {counted !== '' && Math.abs(Number(counted) - Number(h.total)) >= 0.005 && <p className="warn-text">That's LKR {lkr(Math.abs(Number(counted) - Number(h.total)))} {Number(counted) < Number(h.total) ? 'short' : 'over'}. Count again, or send it back.</p>}
           <div className="btn-row">
             <button className="btn primary" disabled={busy || !first || counted === '' || Math.abs(Number(counted) - Number(h.total)) >= 0.005 || numState.app > 0 || numState.bc > 0}

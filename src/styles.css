@@ -786,6 +786,11 @@ td.num.out { color: var(--red); }
 .number-editor .ne-input { width: 8rem; }
 .nc-app { display: grid; gap: 0.2rem; }
 .export-bar .next-no { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; font-weight: 700; }
+.export-bar .next-no input { width: 8rem; font-size: 1.05rem; }
+.line-up { display: grid; gap: 0.6rem; padding: 0.6rem 0.8rem; border-left: 3px solid var(--sky); }
+.line-up ul { margin: 0.25rem 0 0; }
+.line-up li + li { margin-top: 0.3rem; }
+.line-up p { margin: 0; }
 .export-bar .next-no strong { font-size: 1.05rem; color: var(--navy); }
 .export-bar .next-no .muted { font-weight: 400; }
 .match-bc summary { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
