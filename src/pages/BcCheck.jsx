@@ -74,37 +74,84 @@ function Upload({ title, hint, parse, fn, onDone }) {
 
 // Documents of receipts finance sent back to Sales (reverse each in BC; the corrected receipt gets a new number),
 // and documents a Finance Admin reopened because BC doesn't have them (exported again under a new number).
+// Finance can mark one checked (BC is right as it is); closing a month marks the month's ones checked.
 const REV = {
   to_reverse: { label: 'Reverse it in BC', cls: 'bad', hint: 'BC still shows it posted.' },
   reversed: { label: 'Reversed in BC', cls: 'ok', hint: '' },
   not_in_bc: { label: 'Not in BC', cls: 'muted', hint: "Not in the BC ledgers uploaded: fine if it was never posted; otherwise upload newer ledgers." },
 };
-function Reversals({ rows }) {
+const revState = (s) => REV[s] ?? { label: s, cls: 'muted', hint: '' };
+const BC_SAYS = { to_reverse: 'BC shows it posted', reversed: 'Reversed in BC', not_in_bc: 'Not in BC' };
+
+function RevReceipts({ r }) {
+  return (<>{r.item && <div>{r.kind === 'card batch' ? `Card batch ${r.item}` : r.item}</div>}
+    {r.receipts.map((x, i) => <span key={x.id}>{i > 0 && ', '}<Link to={`/c/${x.id}`}>{x.ref}</Link> {x.customer}</span>)}</>);
+}
+
+function Reversals({ rows, onChanged, canCheck }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState('');
   if (!rows.length) return null;
-  const open = rows.filter((r) => r.state === 'to_reverse');
+  const live = rows.filter((r) => !r.checked);
+  const done = rows.filter((r) => r.checked);
+  const open = live.filter((r) => r.state === 'to_reverse');
   const reopened = rows.filter((r) => r.reopened).length;
+  async function mark(r, checked) {
+    let note = null;
+    if (checked) {
+      note = window.prompt(`What did you check in BC for ${r.doc_no}?`, r.state === 'to_reverse' ? 'BC is right as it is (bank reconciliation done)' : 'Checked in BC');
+      if (note === null) return;
+    }
+    setBusy(r.id); setError('');
+    try { await rpc('cc_bc_reversal_check', { p_doc_id: r.id, p_checked: checked, p_note: note }); await onChanged?.(); }
+    catch (e) { setError(e.message); } finally { setBusy(null); }
+  }
   return (
     <details className="facts reversals" open={open.length > 0}>
-      <summary><strong>{reopened === rows.length ? 'Reopened' : reopened ? 'Sent back to Sales or reopened' : 'Sent back to Sales'}: {open.length ? `${open.length} to check in BC` : 'nothing to do in BC'}</strong> ({rows.length})</summary>
+      <summary><strong>{reopened === rows.length ? 'Reopened' : reopened ? 'Sent back to Sales or reopened' : 'Sent back to Sales'}: {open.length ? `${open.length} to check in BC` : 'nothing to do in BC'}</strong> ({live.length}{done.length ? `, ${done.length} checked` : ''})</summary>
       <p className="hint">When finance sends a finished receipt back to Sales, its document is kept here as reversed. Reverse it in Business Central;
         the corrected receipt is exported under a new number with &quot;Replaces …&quot; in its Comment. A document a Finance Admin reopened (BC doesn&apos;t have it)
-        is listed too: what it covered is exported again under a new number. Upload the ledgers again to see BC&apos;s side.</p>
-      <div className="table-wrap flat"><table className="table">
-        <thead><tr><th>Document</th><th>Receipts</th><th className="num">LKR</th><th>Sent back / reopened</th><th>BC</th><th>Replaced by</th></tr></thead>
-        <tbody>{rows.map((r) => (
-          <tr key={r.id}>
-            <td><strong>{r.doc_no}</strong><div className="muted small">{fmtDate(r.posting_date)}</div></td>
-            <td>{r.item && <div>{r.kind === 'card batch' ? `Card batch ${r.item}` : r.item}</div>}{r.receipts.map((x, i) => <span key={x.id}>{i > 0 && ', '}<Link to={`/c/${x.id}`}>{x.ref}</Link> {x.customer}</span>)}</td>
-            <td className="num">{lkr(r.total)}</td>
-            <td className="small">{fmtDateTime(r.reversed_at)} by {r.reversed_by}<div className="muted">{r.note}</div></td>
-            <td>{r.reopened ? (r.state === 'to_reverse'
-              ? <><span className="pill bad">BC ledger shows it</span><div className="muted small">A newer upload still has live entries under it: check BC, so it isn&apos;t posted twice.</div></>
-              : <span className="pill muted">Not in BC</span>)
-              : <><span className={`pill ${REV[r.state].cls}`}>{REV[r.state].label}</span>{REV[r.state].hint && <div className="muted small">{REV[r.state].hint}</div>}</>}</td>
-            <td>{r.replaced_by ?? <span className="muted">not exported yet</span>}</td>
-          </tr>
-        ))}</tbody>
-      </table></div>
+        is listed too: what it covered is exported again under a new number. Upload the ledgers again to see BC&apos;s side.
+        When BC is right as it is, mark it checked; closing a month marks that month&apos;s ones checked.</p>
+      {error && <p className="error">{error}</p>}
+      {live.length > 0 && (
+        <div className="table-wrap flat"><table className="table">
+          <thead><tr><th>Document</th><th>Receipts</th><th className="num">LKR</th><th>Sent back / reopened</th><th>BC</th><th>Replaced by</th></tr></thead>
+          <tbody>{live.map((r) => (
+            <tr key={r.id}>
+              <td><strong>{r.doc_no}</strong><div className="muted small">{fmtDate(r.posting_date)}</div></td>
+              <td><RevReceipts r={r} /></td>
+              <td className="num">{lkr(r.total)}</td>
+              <td className="small">{fmtDateTime(r.reversed_at)} by {r.reversed_by}<div className="muted">{r.note}</div></td>
+              <td>{r.reopened ? (r.state === 'to_reverse'
+                ? <><span className="pill bad">BC ledger shows it</span><div className="muted small">A newer upload still has live entries under it: check BC, so it isn&apos;t posted twice.</div></>
+                : <span className="pill muted">Not in BC</span>)
+                : <><span className={`pill ${revState(r.state).cls}`}>{revState(r.state).label}</span>{revState(r.state).hint && <div className="muted small">{revState(r.state).hint}</div>}</>}
+                {canCheck && <div><button className="link small" disabled={busy === r.id} onClick={() => mark(r, true)}>{busy === r.id ? 'Saving…' : 'Mark checked'}</button></div>}</td>
+              <td>{r.replaced_by ?? <span className="muted">not exported yet</span>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      {done.length > 0 && (
+        <details className="rev-checked">
+          <summary>Checked ({done.length})</summary>
+          <div className="table-wrap flat"><table className="table">
+            <thead><tr><th>Document</th><th>Receipts</th><th className="num">LKR</th><th>Checked</th><th>BC</th><th>Replaced by</th></tr></thead>
+            <tbody>{done.map((r) => (
+              <tr key={r.id}>
+                <td><strong>{r.doc_no}</strong><div className="muted small">{fmtDate(r.posting_date)}</div></td>
+                <td><RevReceipts r={r} /></td>
+                <td className="num">{lkr(r.total)}</td>
+                <td className="small">{fmtDateTime(r.checked_at)}{r.checked_by ? ` by ${r.checked_by}` : ''}<div className="muted">{r.check_note}</div>
+                  {canCheck && <button className="link small" disabled={busy === r.id} onClick={() => mark(r, false)}>Take the check off</button>}</td>
+                <td><span className="pill muted">{BC_SAYS[r.state] ?? r.state}</span></td>
+                <td>{r.replaced_by ?? <span className="muted">—</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </details>
+      )}
     </details>
   );
 }
@@ -155,7 +202,7 @@ export default function BcCheck() {
         </div>
       )}
 
-      <Reversals rows={reversals} />
+      <Reversals rows={reversals} canCheck={role === 'finance'} onChanged={load} />
 
       <div className="list-head">
         <div className="tabs" role="tablist">

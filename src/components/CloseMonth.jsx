@@ -17,12 +17,16 @@ function endedMonths() {
 }
 
 const GROUPS = [
-  { key: 'found', title: "Exported, and BC's bank ledger has it under BC's number: the app takes that number", test: (x) => x.action === 'found_in_bc' },
-  { key: 'bcno', title: 'Never exported: recorded under its BC number', test: (x) => x.action === 'closed_new' && (x.bc_found || x.kind === 'cash receipt') },
-  { key: 'closed', title: "Never exported, not found in BC's ledgers: closed with the month (CLOSED-… number)", test: (x) => x.action === 'closed_new' && !x.bc_found && x.kind !== 'cash receipt' },
-  { key: 'accepted', title: 'Exported, not found under its number in BC: accepted as posted', test: (x) => x.action === 'accepted' },
-  { key: 'diff', title: 'BC check shows "BC differs": accepted as posted', test: (x) => x.action === 'diff_accepted' },
+  { key: 'found', title: "Export to BC · exported, and BC's bank ledger has it under BC's number: the app takes that number", test: (x) => x.action === 'found_in_bc' },
+  { key: 'bcno', title: 'Export to BC · never exported: recorded under its BC number', test: (x) => x.action === 'closed_new' && (x.bc_found || x.kind === 'cash receipt') },
+  { key: 'closed', title: "Export to BC · never exported, not found in BC's ledgers: closed with the month (CLOSED-… number)", test: (x) => x.action === 'closed_new' && !x.bc_found && x.kind !== 'cash receipt' },
+  { key: 'accepted', title: 'Export to BC · exported, not found under its number in BC: accepted as posted', test: (x) => x.action === 'accepted' },
+  { key: 'diff', title: 'BC check · needs attention ("BC differs", not found, customer side missing): accepted as posted', test: (x) => x.action === 'diff_accepted' || x.action === 'doc_accepted' },
+  { key: 'rev', title: 'BC check · sent back to Sales or reopened (this month or earlier): marked checked, BC taken as right', test: (x) => x.action === 'reversal_checked', noMoney: true },
+  { key: 'receipt', title: 'Receipts still open (not cheques): closed and recorded as posted in BC', test: (x) => x.action === 'receipt_closed' },
+  { key: 'line', title: 'Bank credits never identified: tagged "Other: Posted in BC"', test: (x) => x.action === 'line_tagged' },
 ];
+const noMoney = (x) => x.action === 'reversal_checked';
 
 // Finance: close a month whose bank reconciliations are done, so everything in it counts as posted in BC.
 export default function CloseMonth({ onDone }) {
@@ -54,7 +58,7 @@ export default function CloseMonth({ onDone }) {
     setBusy(true); setError(''); setMsg('');
     try {
       const r = await rpc('cc_period_close', { p_from: month.from, p_to: month.to, p_apply: true, p_note: note, p_skip: [...skip] });
-      setMsg(`${month.label} closed: ${r.items} item${r.items === 1 ? '' : 's'} now count as posted in BC.`);
+      setMsg(`${month.label} closed: ${r.items} item${r.items === 1 ? '' : 's'} now count as posted in BC.${(r.check ?? []).length ? ` ${r.check.length} left open (cheques for collection, or another month).` : ''}`);
       setPlan(null); setNote(''); setSkip(new Set());
       await loadHistory(); await onDone?.();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
@@ -67,16 +71,20 @@ export default function CloseMonth({ onDone }) {
 
   const items = plan?.items ?? [];
   const closing = items.filter((x) => !skip.has(x.key));
-  const total = closing.reduce((a, x) => a + Number(x.total ?? 0), 0);
+  const total = closing.filter((x) => !noMoney(x)).reduce((a, x) => a + Number(x.total ?? 0), 0);
+  const check = plan?.check ?? [];
+  const cheques = check.filter((x) => x.group === 'cheque');
+  const others = check.filter((x) => x.group !== 'cheque');
   const tick = (k) => setSkip((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const monthName = (h) => new Date(`${h.from}T00:00:00`).toLocaleString('en-GB', { month: 'long', year: 'numeric' });
 
   return (
     <details className="facts close-month" id="close-month">
       <summary>Close a month</summary>
-      <p className="hint">When a month&apos;s bank reconciliations are done and every entry is in Business Central, close it: everything of that month still on
-        Export to BC counts as posted in BC and leaves Export to BC, Not in BC yet and BC check. Where BC&apos;s bank ledger has the same amount on the same bank,
-        the app takes BC&apos;s document number. Later months are not touched, and a close can be undone.</p>
+      <p className="hint">When a month&apos;s bank reconciliations are done and every entry is in Business Central, close it. Everything of that month still open in the app
+        counts as posted in BC: Export to BC, BC check (including documents sent back to Sales or reopened), receipts still with finance or sent back to Sales,
+        and bank credits never identified. Where BC&apos;s bank ledger has the same amount on the same bank, the app takes BC&apos;s document number.
+        Cheques still in collection are left as they are, later months are not touched, and a close can be undone.</p>
       <div className="row">
         <label className="inline-field">Month
           <select value={m} onChange={(e) => setM(Number(e.target.value))} aria-label="Month to close">
@@ -88,7 +96,7 @@ export default function CloseMonth({ onDone }) {
         <div className="match-plan">
           <p className="hint small">BC ledgers last uploaded: bank {plan.uploads?.bank ? fmtDateTime(plan.uploads.bank) : 'never'}, customer {plan.uploads?.customer ? fmtDateTime(plan.uploads.customer) : 'never'}.
             Upload the latest ones on BC check first, so BC&apos;s numbers are found.</p>
-          {items.length === 0 && <p className="ok-text">Nothing of {month.label} is waiting on Export to BC.</p>}
+          {items.length === 0 && <p className="ok-text">Nothing of {month.label} is open in the app.</p>}
           {GROUPS.map((g) => { const list = items.filter(g.test); return list.length > 0 && (
             <div key={g.key}>
               <h4>{g.title} ({list.length})</h4>
@@ -99,23 +107,30 @@ export default function CloseMonth({ onDone }) {
                     <span className="lp-narr">{x.item}</span>
                     <span className="lp-meta">
                       <span>{fmtDate(x.date)}</span>
-                      {x.old_no ? <span><strong>{x.old_no}</strong> → <strong>{x.doc_no}</strong></span> : <span><strong>{x.doc_no}</strong></span>}
+                      {x.old_no ? <span><strong>{x.old_no}</strong> → <strong>{x.doc_no}</strong></span> : x.doc_no && <span><strong>{x.doc_no}</strong></span>}
                       {(x.issues ?? []).length > 0 && <span className="lp-close">Was waiting on: {x.issues.join(', ').replace(/_/g, ' ')}</span>}
                     </span>
                     <span className="muted small">{x.why}</span>
                   </span>
-                  <span className="num lp-amt">{lkr(x.total)}</span>
+                  <span className={`num lp-amt${g.noMoney ? ' muted' : ''}`}>{lkr(x.total)}</span>
                 </label></li>))}</ul>
             </div>); })}
-          {(plan.check ?? []).length > 0 && (
+          {cheques.length > 0 && (
             <div>
-              <h4>To check, not changed ({plan.check.length})</h4>
-              <p className="hint small">Receipts of {month.label} still with finance or sent back to Sales: they aren&apos;t on Export to BC, so finish them on their pages.</p>
-              <ul className="plain small">{plan.check.map((x) => <li key={x.key}>{x.item} · LKR {lkr(x.total)} — <span className="muted">{x.why}</span></li>)}</ul>
+              <h4>Cheques for collection: left as they are ({cheques.length})</h4>
+              <p className="hint small">Cheque receipts of {month.label} still being collected, deposited or cleared. Each one goes with its own bank date.</p>
+              <ul className="plain small">{cheques.map((x) => <li key={x.key}>{x.item} · LKR {lkr(x.total)} — <span className="muted">{x.why}</span></li>)}</ul>
+            </div>
+          )}
+          {others.length > 0 && (
+            <div>
+              <h4>Left open, not changed ({others.length})</h4>
+              <p className="hint small">Receipts of {month.label} whose bank item is in another month (they close with that month), or cash receipts without a CSHRC number.</p>
+              <ul className="plain small">{others.map((x) => <li key={x.key}>{x.item} · LKR {lkr(x.total)} — <span className="muted">{x.why}</span></li>)}</ul>
             </div>
           )}
           {items.length > 0 && (admin ? (<>
-            <p className="match-sum">Closing <strong>{closing.length}</strong> of {items.length} item{items.length === 1 ? '' : 's'}, LKR <strong>{lkr(total)}</strong>. Untick any that isn&apos;t in BC.</p>
+            <p className="match-sum">Closing <strong>{closing.length}</strong> of {items.length} item{items.length === 1 ? '' : 's'}, LKR <strong>{lkr(total)}</strong>. Untick any that isn&apos;t in BC or should stay open.</p>
             <label className="field"><span className="flabel">Why can {month.label} be closed?</span>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={`E.g. ${month.label} bank reconciliations done, all entries posted in BC`} /></label>
             <button className="btn primary" disabled={busy || !note.trim() || closing.length === 0} onClick={apply}>{busy ? 'Closing…' : `Close ${month.label}`}</button>

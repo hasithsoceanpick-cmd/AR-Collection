@@ -804,6 +804,9 @@ td.num.out { color: var(--red); }
 .close-month .inline-field select { width: auto; min-width: 12rem; }
 .close-month .checklist { max-height: 360px; }
 .close-month .lp-main .muted.small { display: block; margin-top: 0.15rem; }
+.close-month h4 { margin: 1rem 0 0.4rem; }
+.reversals .rev-checked { margin-top: 0.8rem; }
+.reversals .rev-checked > summary { cursor: pointer; font-weight: 700; color: var(--muted); }
 .close-history { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
 .close-history li { margin-bottom: 0.5rem; }
 
