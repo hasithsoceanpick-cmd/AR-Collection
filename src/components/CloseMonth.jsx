@@ -29,7 +29,7 @@ const GROUPS = [
 const noMoney = (x) => x.action === 'reversal_checked';
 
 // Finance: close a month whose bank reconciliations are done, so everything in it counts as posted in BC.
-export default function CloseMonth({ onDone }) {
+export default function CloseMonth({ onDone, defaultOpen = false }) {
   const { role, isAdmin } = useAuth();
   const admin = role === 'finance' && isAdmin;
   const months = useMemo(endedMonths, []);
@@ -79,7 +79,7 @@ export default function CloseMonth({ onDone }) {
   const monthName = (h) => new Date(`${h.from}T00:00:00`).toLocaleString('en-GB', { month: 'long', year: 'numeric' });
 
   return (
-    <details className="facts close-month" id="close-month">
+    <details className="facts close-month" id="close-month" open={defaultOpen || undefined}>
       <summary>Close a month</summary>
       <p className="hint">When a month&apos;s bank reconciliations are done and every entry is in Business Central, close it. Everything of that month still open in the app
         counts as posted in BC: Export to BC, BC check (including documents sent back to Sales or reopened), receipts still with finance or sent back to Sales,

@@ -25,7 +25,7 @@ export function NumberCheck({ code, first, count, onState, hint = null }) {
     <div className="number-check">
       {app.map((r) => <p key={r.no} className="error small">{r.no} is already held in the app by {r.app}.</p>)}
       {bc.map((r) => <p key={r.no} className="error small">{r.no} is already in Business Central: {r.bc}.</p>)}
-      {hint ? <p className="hint small">{hint}</p> : <p className="hint small">The app and Business Central are out of line. <a href="#match-bc" onClick={() => setTick((n) => n + 1)}>Match BC numbers</a> lines them up
+      {hint ? <p className="hint small">{hint}</p> : <p className="hint small">The app and Business Central are out of line. <a href="/bc-close#match-bc" onClick={() => setTick((n) => n + 1)}>Match BC numbers</a> lines them up
         (a Finance Admin enters BC&apos;s next numbers).</p>}
     </div>
   );

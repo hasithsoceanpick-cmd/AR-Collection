@@ -9,6 +9,14 @@ export function fmtDate(d) {
   return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// A short date: "11 Nov" (the year only when it isn't this year).
+export function fmtDay(d) {
+  if (!d) return '—';
+  const dt = typeof d === 'string' && d.length === 10 ? new Date(`${d}T00:00:00`) : new Date(d);
+  const opts = dt.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' };
+  return dt.toLocaleDateString('en-GB', opts);
+}
+
 export function fmtDateTime(d) {
   if (!d) return '—';
   return new Date(d).toLocaleString('en-GB', {

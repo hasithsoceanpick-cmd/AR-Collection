@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { supabase, COLLECTION_SELECT, db, SCHEMA, rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { isOpen, waitingOnMe, nextStepText } from '../lib/workflow';
+import { isOpen, waitingOnMe, nextStepText, STATUS } from '../lib/workflow';
 import { lkr, ref, fmtDate, personName, daysAgo } from '../lib/format';
 import StatusStamp from '../components/StatusStamp';
 import { BACKUP_DUE_DAYS } from './Backup';
@@ -14,6 +14,12 @@ export default function List() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState(null);
   const [q, setQ] = useState('');
+  const [kind, setKind] = useState('all');
+  const [params, setParams] = useSearchParams();
+  // a filter from a link (Today): ?status=a,b&kind=cheque&title=…
+  const fStatus = (params.get('status') ?? '').split(',').filter(Boolean);
+  const fKind = params.get('kind');
+  const fTitle = params.get('title') || fStatus.map((x) => STATUS[x]?.label ?? x).join(', ');
   const [matches, setMatches] = useState({});   // Sales: parked payment id → bank lines that could be it
   const [lastBackup, setLastBackup] = useState(undefined);   // Finance Admin: when the last data backup was taken
 
@@ -64,10 +70,12 @@ export default function List() {
   const current = tabs.find((t) => t.key === active) ?? tabs[0];
 
   const term = q.trim().toLowerCase();
-  const shown = term
+  const filtered = fStatus.length ? groups.all.filter((c) => fStatus.includes(c.status) && (!fKind || c.kind === fKind)) : null;
+  const shown = (term
     ? groups.all.filter((c) =>
         [c.customer_name, c.customer_no, c.invoice_refs, ref(c.id), c.location_text].some((v) => v?.toLowerCase().includes(term)))
-    : current.list;
+    : filtered ?? current.list).filter((c) => kind === 'all' || c.kind === kind);
+  const kinds = [['all', 'All'], ['cheque', 'Cheques'], ['transfer', 'Transfers'], ['card', 'Card payments']];
 
   const rejected = role === 'sales' ? groups.all.filter((c) => c.status === 'rejected' && (c.created_by === uid || isAdmin)) : [];
   const parkedFound = role === 'sales' ? groups.all.filter((c) => c.status === 'parked' && matches[c.id]) : [];
@@ -105,8 +113,8 @@ export default function List() {
         </div>
       )}
       <div className="page-head">
-        <h1>Collections</h1>
-        {(role === 'sales' || role === 'finance') && (
+        <h1>{role === 'finance' ? 'Receipts' : 'Collections'}</h1>
+        {role === 'sales' && (
           <div className="row">
             <Link className="btn primary" to="/new">New collection</Link>
             <Link className="btn" to="/transfer">Record transfer</Link>
@@ -115,24 +123,36 @@ export default function List() {
         )}
       </div>
 
+      {filtered && (
+        <div className="filter-bar" role="status">
+          <span>Showing <strong>{fTitle}</strong> ({shown.length})</span>
+          <button type="button" className="link" onClick={() => setParams({})}>Show all receipts</button>
+        </div>
+      )}
       <div className="list-tools">
-        <div className="tabs" role="tablist">
+        {!filtered && <div className="tabs" role="tablist">
           {tabs.map((t) => (
             <button key={t.key} role="tab" aria-selected={!term && active === t.key}
               className={!term && active === t.key ? 'tab on' : 'tab'} onClick={() => { setTab(t.key); setQ(''); }}>
               {t.label} <span className="count">{t.list.length}</span>
             </button>
           ))}
-        </div>
+        </div>}
         <input className="search" type="search" placeholder="Search customer, code, invoice or CC number"
           value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search collections" />
       </div>
+      {role !== 'driver' && (
+        <div className="chips" role="group" aria-label="Kind">
+          {kinds.map(([k, label]) => <button key={k} type="button" className={kind === k ? 'chip on' : 'chip'} aria-pressed={kind === k} onClick={() => setKind(k)}>{label}</button>)}
+        </div>
+      )}
 
       {error && <p className="error">{error}</p>}
       {rows === null && !error && <p className="muted">Loading…</p>}
       {rows !== null && shown.length === 0 && (
         <div className="empty">
           {term ? <p>Nothing matches “{q}”.</p>
+            : filtered ? <p>Nothing here now.</p>
             : active === 'mine' ? <p>Nothing is waiting on you.</p>
             : role === 'sales' ? <p>When a customer says a cheque is ready, record it with <Link to="/new">New collection</Link>.</p>
             : <p>No collections here yet.</p>}

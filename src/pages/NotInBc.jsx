@@ -33,7 +33,11 @@ export default function NotInBc() {
 
   return (
     <section className="wide">
-      <div className="page-head"><h1>Not in BC yet</h1></div>
+      <div className="page-head"><h1>Not in BC yet</h1>
+        {role === 'finance' && <div className="seg" role="group" aria-label="Show by">
+          <Link to="/bc-check" className={""} aria-current={undefined}>By document</Link>
+          <Link to="/not-in-bc" className={"on"} aria-current={"page"}>By receipt (not in BC yet)</Link>
+        </div>}</div>
       <p className="lede">{role === 'sales' ? 'Everything you sent to finance' : 'Everything sent to finance'} that Business Central hasn't confirmed yet.
         An item leaves this list only when finance uploads the BC ledgers and the BC check finds it posted as sent. Until then, for all purposes, it is not recorded in BC.</p>
       {error && <p className="error">{error}</p>}

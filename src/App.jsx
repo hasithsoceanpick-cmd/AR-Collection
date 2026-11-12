@@ -31,6 +31,10 @@ import Aging from './pages/Aging';
 import CustomerList from './pages/CustomerList';
 import CustomerPage from './pages/CustomerPage';
 import PayHerePage from './pages/PayHere';
+import Today from './pages/Today';
+import MoneyIn from './pages/MoneyIn';
+import BcClose from './pages/BcClose';
+import Settings from './pages/Settings';
 
 function Gate() {
   const { session, loading, role, isAdmin } = useAuth();
@@ -41,10 +45,14 @@ function Gate() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={role === 'executive' ? <Overview /> : <List />} />
+        <Route index element={role === 'executive' ? <Overview /> : role === 'finance' ? <Today /> : <List />} />
         <Route path="collections" element={<List />} />
         {(role === 'finance' || role === 'executive') && <Route path="overview" element={<Overview />} />}
         {role === 'finance' && <Route path="bc-export" element={<BcExport />} />}
+        {role === 'finance' && <Route path="bc" element={<Navigate to="/bc-export" replace />} />}
+        {role === 'finance' && <Route path="bc-close" element={<BcClose />} />}
+        {role === 'finance' && <Route path="money-in" element={<MoneyIn />} />}
+        {role === 'finance' && <Route path="settings" element={<Settings />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="cash" element={<CashList />} />}

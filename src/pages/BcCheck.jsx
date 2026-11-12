@@ -189,7 +189,11 @@ export default function BcCheck() {
 
   return (
     <section className="wide">
-      <div className="page-head"><h1>BC check</h1></div>
+      <div className="page-head"><h1>BC check</h1>
+        {role === 'finance' && <div className="seg" role="group" aria-label="Show by">
+          <Link to="/bc-check" className={"on"} aria-current={"page"}>By document</Link>
+          <Link to="/not-in-bc" className={""} aria-current={undefined}>By receipt (not in BC yet)</Link>
+        </div>}</div>
       <p className="lede">After posting in Business Central, upload these two exports. Each exported document is checked: the bank side (right account, date and total) and the customer side (right customer, invoices applied exactly as Sales instructed).</p>
       {error && <p className="error">{error}</p>}
       {notice && <p className="ok-box">{notice} <Link to="/bc-export">Export to BC</Link></p>}

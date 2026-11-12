@@ -444,7 +444,7 @@ function NewCshrc({ l, onDone }) {
       <div className="row">
         <div className="field"><span className="flabel">New CSHRC number</span>
           <strong>{no ? `CSHRC-${no.padStart(7, '0')}` : 'Not set'}</strong>
-          <span className="hint">The next number in Business Central&apos;s series. Not BC&apos;s next? Use <Link to="/bc-export#match-bc">Match BC numbers</Link>.</span></div>
+          <span className="hint">The next number in Business Central&apos;s series. Not BC&apos;s next? Use <Link to="/bc-close#match-bc">Match BC numbers</Link>.</span></div>
       </div>
       {err && <p className="error">{err}</p>}
       <button className="btn primary" disabled={busy || !no} onClick={save}>Save the number</button>

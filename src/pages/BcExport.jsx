@@ -1,11 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { db, rpc } from '../lib/supabase';
 import { lkr, fmtDate } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
-import { MatchBc, Renumber } from '../components/DocNumbers';
-import CloseMonth from '../components/CloseMonth';
+import { Renumber } from '../components/DocNumbers';
 import ChequeLines from '../components/ChequeLines';
 
 const numOf = (no) => Number(String(no ?? '').replace(/\D/g, ''));
@@ -104,6 +103,7 @@ function LineUp({ plan }) {
 
 export default function BcExport() {
   const { role, isAdmin } = useAuth();
+  const { reloadToday } = useOutletContext() ?? {};
   const [rows, setRows] = useState(null);
   const [nextNo, setNextNo] = useState('');
   const [sel, setSel] = useState(new Set());
@@ -197,7 +197,7 @@ export default function BcExport() {
       res.docs = [...res.docs].sort((a, b) => String(a.doc_no).localeCompare(String(b.doc_no)));
       setResult(res);
       if (res.docs.length) await downloadJournal(res.docs, `BC Cash Receipt Journal ${res.docs[0].doc_no}${res.docs.length > 1 ? ` to ${res.docs[res.docs.length - 1].doc_no}` : ''} (${today()}).xlsx`);
-      await load();
+      await load(); reloadToday?.();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const copy = async () => { await navigator.clipboard.writeText(journalText(result.docs)); setCopied(true); };
@@ -322,8 +322,6 @@ export default function BcExport() {
           ))}
         </>
       )}
-      {['finance', 'executive'].includes(role) && <CloseMonth onDone={load} />}
-      {['finance', 'executive'].includes(role) && <MatchBc onDone={load} />}
       {mapDeposit && <ChequeMap depositId={mapDeposit} admin={isAdmin && role === 'finance'} onDone={() => { setMapDeposit(null); load(); }} />}
     </section>
   );
