@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { rpc } from '../lib/supabase';
 import { lkr, ref, fmtDate, todayISO } from '../lib/format';
 import { KIND_LABEL, STATUS } from '../lib/workflow';
 import { BUCKETS, bucketLabel, docType, kindLabel, downloadStatement } from '../lib/aging';
 import LedgerStatus from '../components/LedgerStatus';
 import StatusStamp from '../components/StatusStamp';
+import FollowUpPanel from '../components/FollowUpPanel';
+import { useAuth } from '../lib/auth';
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 function period(key, to) {
@@ -19,6 +21,8 @@ function period(key, to) {
 // One customer: details, what is open and its age, the ledger with a running balance, and the app's receipts.
 export default function CustomerPage() {
   const { no } = useParams();
+  const { role } = useAuth();
+  const { hash } = useLocation();
   const [params, setParams] = useSearchParams();
   const to = params.get('to') || todayISO();
   const from = params.get('from') ?? '';
@@ -34,6 +38,13 @@ export default function CustomerPage() {
       .then((d) => { if (live) setData(d); }).catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [no, from, to]);
+
+  // a notification or the worklist opens the follow-up: scroll to it once the page is there
+  useEffect(() => {
+    if (hash !== '#follow-up' || !data) return undefined;
+    const t = setTimeout(() => document.getElementById('follow-up')?.scrollIntoView({ block: 'start' }), 50);
+    return () => clearTimeout(t);
+  }, [hash, data]);
 
   const lines = useMemo(() => {
     if (!data) return [];
@@ -79,6 +90,8 @@ export default function CustomerPage() {
           {BUCKETS.map((x) => { const v = Math.max(0, Number(b[x.key])); return v > 0 ? <i key={x.key} className={`b-${x.key}`} style={{ flexGrow: v }} title={`${x.label}: LKR ${lkr(v)}`} /> : null; })}
         </div>
       )}
+
+      {(role === 'finance' || role === 'executive') && <FollowUpPanel customerNo={no} />}
 
       <div className="facts">
         <h2>Open at {fmtDate(data.to)} ({data.open.length})</h2>

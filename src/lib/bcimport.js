@@ -15,6 +15,8 @@ const CUSTOMER_COLUMNS = {
   customer_group: ['customerpostinggroup'],
   payment_terms: ['paymenttermscode'],
   currency_code: ['currencycode'],
+  salesperson_code: ['salespersoncode'],
+  credit_limit: ['creditlimitlcy', 'creditlimit'],
 };
 const CUSTOMER_REQUIRED = { customer_no: 'No.', name: 'Name' };
 
@@ -110,6 +112,9 @@ export async function parseCustomers(file) {
       customer_group: toText(get(row, 'customer_group')),
       payment_terms: toText(get(row, 'payment_terms')),
       currency_code: toText(get(row, 'currency_code')),
+      // only when the file has these columns, so a file without them never clears what an earlier upload set
+      ...(h.map.salesperson_code !== undefined ? { salesperson_code: toText(get(row, 'salesperson_code')) } : {}),
+      ...(h.map.credit_limit !== undefined ? { credit_limit: toNumber(get(row, 'credit_limit')) } : {}),
     });
   }
   if (!out.length) throw new Error('The file has the right columns but no customers in it.');

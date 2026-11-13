@@ -1,4 +1,4 @@
-// Finance's menu: six sections, each with its own tabs over the existing pages.
+// Finance's menu: seven sections, each with its own tabs over the existing pages.
 // `also`: other paths that belong to a tab (detail pages, forms). `count`: which Today figures its badge adds up.
 
 export function financeSections(isAdmin = false) {
@@ -34,6 +34,12 @@ export function financeSections(isAdmin = false) {
         { to: '/customer-list', label: 'Customers', also: ['/customer/'] },
         { to: '/aging', label: 'Aging' },
         { to: '/customers', label: 'BC customer files' },
+      ] },
+    { key: 'followup', label: 'AR follow-up', short: 'Follow-up', to: '/followup', icon: 'phone', count: ['ar_due'],
+      tabs: [
+        { to: '/followup', label: 'Worklist', exact: true, count: ['ar_due'] },
+        { to: '/followup/promises', label: 'Promises' },
+        { to: '/followup/owners', label: 'Owners' },
       ] },
     { key: 'reports', label: 'Reports', short: 'Reports', to: '/reports', icon: 'chart',
       tabs: [

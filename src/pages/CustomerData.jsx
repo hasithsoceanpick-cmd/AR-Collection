@@ -115,12 +115,23 @@ export default function CustomerData() {
         steps={[
           'Open Customers in Business Central.',
           'Clear any filters so every customer is listed, and make sure Customer Posting Group and Payment Terms Code are showing (Personalize if not). The Overview uses them.',
+          'For AR follow-up, also show Salesperson Code (the customer\'s owner) and Credit Limit (LCY) if you use them. Both are optional.',
           'Choose Share → Open in Excel and save the file.',
           'Upload that file here without changing it.',
         ]}
         parse={parseCustomers}
-        describe={(rows) => `${rows.length.toLocaleString()} customers found.`}
-        upload={(name, rows) => rpc('cc_import_customers', { p_file: name, p_rows: rows })}
+        describe={(rows) => `${rows.length.toLocaleString()} customers found.${rows.some((r) => 'salesperson_code' in r) ? ' Salesperson Code included.' : ''}${rows.some((r) => 'credit_limit' in r) ? ' Credit Limit (LCY) included.' : ''}`}
+        upload={async (name, rows) => {
+          const extra = rows.some((r) => 'salesperson_code' in r || 'credit_limit' in r);
+          const n = await rpc('cc_import_customers', { p_file: name, p_rows: rows.map(({ salesperson_code: _s, credit_limit: _c, ...r }) => r) });
+          if (extra) {
+            await rpc('cc_ar_customer_extras', {
+              p_rows: rows.map((r) => ({ customer_no: r.customer_no,
+                ...('salesperson_code' in r ? { salesperson_code: r.salesperson_code } : {}), ...('credit_limit' in r ? { credit_limit: r.credit_limit } : {}) })),
+            });
+          }
+          return n;
+        }}
         onDone={load}
       />
 

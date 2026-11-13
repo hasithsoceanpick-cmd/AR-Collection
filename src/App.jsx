@@ -35,6 +35,9 @@ import Today from './pages/Today';
 import MoneyIn from './pages/MoneyIn';
 import BcClose from './pages/BcClose';
 import Settings from './pages/Settings';
+import FollowUp from './pages/FollowUp';
+import FollowUpPromises from './pages/FollowUpPromises';
+import FollowUpOwners from './pages/FollowUpOwners';
 
 function Gate() {
   const { session, loading, role, isAdmin } = useAuth();
@@ -53,6 +56,9 @@ function Gate() {
         {role === 'finance' && <Route path="bc-close" element={<BcClose />} />}
         {role === 'finance' && <Route path="money-in" element={<MoneyIn />} />}
         {role === 'finance' && <Route path="settings" element={<Settings />} />}
+        {role === 'finance' && <Route path="followup" element={<FollowUp />} />}
+        {role === 'finance' && <Route path="followup/promises" element={<FollowUpPromises />} />}
+        {role === 'finance' && <Route path="followup/owners" element={<FollowUpOwners />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="cash" element={<CashList />} />}

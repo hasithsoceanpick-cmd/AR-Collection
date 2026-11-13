@@ -56,6 +56,12 @@ export async function takeBackup(progress = () => {}) {
   const drafts = await step('merchant sales', () => read('merchant_drafts'));
   const phPayouts = await step('PayHere payouts', () => read('payhere_payouts'));
   const phPayments = await step('PayHere payments', () => read('payhere_payments'));
+  const arOwners = await step('AR follow-up owners', () => read('customer_owners', 'customer_no'));
+  const arContacts = await step('AR follow-up contacts', () => read('ar_contacts'));
+  const arPromises = await step('AR follow-up promises', () => read('ar_promises'));
+  const arDisputes = await step('AR follow-up disputes', () => read('ar_disputes'));
+  const arLog = await step('AR follow-up log', () => read('ar_log'));
+  const arNotes = await step('AR follow-up notes', () => read('ar_notes'));
   const evSeen = new Set(events.rows.map((e) => e.id));
   const history = [...events.rows, ...(parked.events ?? []).filter((e) => !evSeen.has(e.id))].sort((a, b) => a.id - b.id);
 
@@ -129,6 +135,12 @@ export async function takeBackup(progress = () => {}) {
   raw('PayHere payouts', phPayouts);
   const payoutNo = new Map(phPayouts.rows.map((o) => [o.id, o.payout_no]));
   raw('PayHere payments', phPayments, { 'Payout no': (p) => payoutNo.get(p.payout_id) ?? null });
+  raw('AR owners', arOwners, { Owner: (o) => name(o.user_id), 'Set by': (o) => (o.set_by ? name(o.set_by) : null) });
+  raw('AR contacts', arContacts, { 'Logged by': (c) => name(c.created_by), 'Owner then': (c) => (c.owner_id ? name(c.owner_id) : null) });
+  raw('AR promises', arPromises, { 'Logged by': (p) => name(p.created_by), 'Owner then': (p) => (p.owner_id ? name(p.owner_id) : null), 'CC no': (p) => ccRef(p.collection_id) });
+  raw('AR disputes', arDisputes, { 'Opened by': (d) => name(d.opened_by), 'Resolved by': (d) => (d.resolved_by ? name(d.resolved_by) : null) });
+  raw('AR log', arLog, { Who: (l) => (l.actor ? name(l.actor) : null) });
+  raw('AR notes', arNotes, { 'Written by': (n) => name(n.created_by), 'Owner then': (n) => (n.owner_id ? name(n.owner_id) : null) });
   const allKeys = receipts.length ? [...new Set(receipts.flatMap((r) => Object.keys(r)))] : [];
   add('Receipts (all fields)', allKeys, receipts.map((r) => allKeys.map((k) => cell(r[k]))), col.error);
 

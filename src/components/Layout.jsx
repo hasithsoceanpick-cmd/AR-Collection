@@ -105,7 +105,10 @@ export default function Layout() {
   const loadToday = useCallback(async () => {
     if (!fin) return;
     last.current = Date.now();
-    try { setToday(await rpc('cc_finance_today')); } catch { /* keep the last counts */ }
+    try {
+      const [t, ar] = await Promise.all([rpc('cc_finance_today'), rpc('cc_ar_tick').catch(() => null)]);
+      setToday(ar ? { ...t, ar, queue: { ...(t?.queue ?? {}), ar_due: { count: ar.due } } } : t);
+    } catch { /* keep the last counts */ }
   }, [fin]);
   useEffect(() => {
     if (!fin) { setToday(null); return undefined; }

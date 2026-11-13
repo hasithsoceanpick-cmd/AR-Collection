@@ -20,6 +20,12 @@ export default function CollectionForm() {
   const { role } = useAuth();
   const [params] = useSearchParams();
   const replaces = !editing && params.get('replaces') ? Number(params.get('replaces')) : null;
+  // from a promise to pay on the follow-up: ?customer=&invoices=&amount=&promise=
+  const fromPromise = !editing && !replaces && params.get('customer') ? {
+    customer: params.get('customer'), invoices: (params.get('invoices') || '').split(',').filter(Boolean),
+    amount: params.get('amount'), promise: Number(params.get('promise')) || null,
+  } : null;
+  const [prefilled, setPrefilled] = useState(false);
   const [f, setF] = useState(editing || replaces ? null : EMPTY);
   const [snapshot, setSnapshot] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -78,6 +84,17 @@ export default function CollectionForm() {
     });
   }, [replaces]);
 
+  useEffect(() => {
+    if (!fromPromise || prefilled || !customers.length) return;
+    setPrefilled(true);
+    const c = customers.find((x) => x.customer_no === fromPromise.customer);
+    if (!c) { setError(`Customer ${fromPromise.customer} isn't in the customer list. Choose the customer.`); return; }
+    pickCustomer(c);
+    setF((s) => ({ ...s, settlement_docs: fromPromise.invoices, expected_amount: fromPromise.amount || s.expected_amount,
+      notes: s.notes || 'Cheque pickup promised to finance on the follow-up.' }));
+    if (fromPromise.amount) setAmountTouched(true);
+  }, [customers]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
 
   function pickCustomer(c) {
@@ -121,6 +138,7 @@ export default function CollectionForm() {
         nav(`/c/${id}`);
       } else {
         const newId = await rpc('cc_create', { p: payload });
+        if (fromPromise?.promise) await rpc('cc_ar_promise_link', { p_id: fromPromise.promise, p_collection_id: newId }).catch(() => {});
         nav(`/c/${newId}`);
       }
     } catch (err) { setError(err.message); setBusy(false); }
@@ -134,7 +152,7 @@ export default function CollectionForm() {
   return (
     <section className="narrow">
       <div className="page-head"><h1>{editing ? `Edit ${ref(id)}` : replaces ? `Replacement for ${ref(replaces)}` : 'New collection'}</h1></div>
-      {!editing && !replaces && <p className="lede">The customer has a cheque ready. Record it here and finance will send a driver.</p>}
+      {!editing && !replaces && <p className="lede">{fromPromise ? 'From a promise to pay: the customer and the promised invoices are filled in. Check them and add where to collect.' : 'The customer has a cheque ready. Record it here and finance will send a driver.'}</p>}
 
       {customers.length === 0 && (
         <div className="notice">
