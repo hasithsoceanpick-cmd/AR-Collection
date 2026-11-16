@@ -44,7 +44,8 @@ export default function InvoiceNotes({ customerNo, data: given, onChange, onProm
             <li key={i.doc_no} className={`fu-invnote${i.note ? ' has-note' : ''}`}>
               <div className="fu-invnote-head">
                 <strong>{i.doc_no}</strong>
-                <span className="muted small">due {dmy(i.due_date)} · {i.late > 0 ? `${i.late} days overdue` : 'not due'}</span>
+                <span className="muted small">due {dmy(i.due_date)} · {i.late > 0 ? `${i.late} days overdue` : 'not due'}
+                  {i.late > 0 && i.outer_late != null && i.outer_late !== i.late && (i.outer_late > 0 ? ' · past the outer limit' : ' · within the credit window')}</span>
                 {i.disputed && <span className="pill warn">Disputed</span>}
                 {i.promised && <span className="pill muted">Promised</span>}
                 <span className="num">{lkr(i.remaining)}</span>

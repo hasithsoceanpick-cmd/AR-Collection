@@ -7,6 +7,7 @@ import { BUCKETS, bucketLabel, docType, kindLabel, downloadStatement } from '../
 import LedgerStatus from '../components/LedgerStatus';
 import StatusStamp from '../components/StatusStamp';
 import FollowUpPanel from '../components/FollowUpPanel';
+import CreditTerms from '../components/CreditTerms';
 import { useAuth } from '../lib/auth';
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -29,6 +30,7 @@ export default function CustomerPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rev, setRev] = useState(0);   // credit terms changed: age the invoices again
   const set = (patch) => setParams((p) => { const n = new URLSearchParams(p); for (const [k, v] of Object.entries(patch)) { if (v) n.set(k, v); else n.delete(k); } return n; }, { replace: true });
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export default function CustomerPage() {
     rpc('cc_customer_ledger', { p_customer_no: no, p_from: from || null, p_to: to })
       .then((d) => { if (live) setData(d); }).catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
-  }, [no, from, to]);
+  }, [no, from, to, rev]);
 
   // a notification or the worklist opens the follow-up: scroll to it once the page is there
   useEffect(() => {
@@ -70,7 +72,7 @@ export default function CustomerPage() {
       <div className="page-head">
         <div>
           <h1>{c.name}</h1>
-          <p className="muted">{[c.customer_no, c.group, c.terms && `Terms ${c.terms}`].filter(Boolean).join(' · ')}</p>
+          <p className="muted">{[c.customer_no, c.group].filter(Boolean).join(' · ')}</p>
         </div>
         <button type="button" className="btn" disabled={busy} onClick={excel}>{busy ? 'Preparing…' : 'Download statement'}</button>
       </div>
@@ -79,6 +81,7 @@ export default function CustomerPage() {
       )}
       {!c.in_list && <p className="warn-text">Not in the customer list uploaded from BC (only in the ledger).</p>}
       <LedgerStatus status={data.status} customer incomplete={c.incomplete} />
+      <CreditTerms customerNo={no} onChanged={() => setRev((r) => r + 1)} />
 
       <div className="kpis aging-kpis">
         <div><small>Balance at {fmtDate(data.to)}</small><span>{lkr(b.balance)}</span><small>{Number(b.balance) < 0 ? 'in credit' : (() => { const n = data.open.filter((o) => Number(o.remaining) > 0).length; return `${n} open invoice${n === 1 ? '' : 's'}`; })()}</small></div>

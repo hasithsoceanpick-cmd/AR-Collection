@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, rpc, db } from '../lib/supabase';
-import { parseCustomers, parseLedger, parseDetailedCustLedger } from '../lib/bcimport';
+import { parseCreditTerms, parseCustomers, parseLedger, parseDetailedCustLedger } from '../lib/bcimport';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { fmtDateTime, personName } from '../lib/format';
@@ -15,7 +15,7 @@ function LastUpload({ item, noun }) {
   );
 }
 
-function UploadBox({ title, steps, noun, parse, describe, warn, upload, last, onDone, progress = '', doneMsg = null }) {
+function UploadBox({ title, steps, noun, parse, describe, warn, upload, last, onDone, progress = '', doneMsg = null, howto = 'How to export it from Business Central' }) {
   const [file, setFile] = useState(null);
   const [parsed, setParsed] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -50,7 +50,7 @@ function UploadBox({ title, steps, noun, parse, describe, warn, upload, last, on
       <h2>{title}</h2>
       <LastUpload item={last} noun={noun} />
       <details className="howto">
-        <summary>How to export it from Business Central</summary>
+        <summary>{howto}</summary>
         <ol>{steps.map((s) => <li key={s}>{s}</li>)}</ol>
       </details>
       <label className="btn file-btn">
@@ -81,8 +81,9 @@ function missingHistory(rows) {
 }
 
 export default function CustomerData() {
-  const { role } = useAuth();
+  const { role, isAdmin } = useAuth();
   const [last, setLast] = useState({});
+  const [termsResult, setTermsResult] = useState(null);
   const [ledgerCustomers, setLedgerCustomers] = useState(0);
   const [progress, setProgress] = useState('');
 
@@ -124,6 +125,12 @@ export default function CustomerData() {
         upload={async (name, rows) => {
           const extra = rows.some((r) => 'salesperson_code' in r || 'credit_limit' in r);
           const n = await rpc('cc_import_customers', { p_file: name, p_rows: rows.map(({ salesperson_code: _s, credit_limit: _c, ...r }) => r) });
+          // export customers in the file: keep their ledger copies out of the app (the import itself passes over them)
+          const exportRows = rows.filter((r) => /EXPORT/i.test(r.customer_group ?? '') || (r.currency_code && r.currency_code.toUpperCase() !== 'LKR'));
+          if (exportRows.length) {
+            await rpc('cc_hide_export_customers', { p_rows: exportRows.map((r) => ({ customer_no: r.customer_no, name: r.name, customer_group: r.customer_group, currency_code: r.currency_code })) })
+              .catch(() => { /* follow-up update not installed yet */ });
+          }
           if (extra) {
             await rpc('cc_ar_customer_extras', {
               p_rows: rows.map((r) => ({ customer_no: r.customer_no,
@@ -195,6 +202,33 @@ export default function CustomerData() {
           }}
           onDone={load}
         />
+      )}
+      {role === 'finance' && isAdmin && (
+        <>
+          <UploadBox
+            title="Credit terms"
+            noun="customers with credit terms set"
+            last={null}
+            howto="What the file needs"
+            doneMsg={(n) => `Done: credit terms set for ${n.toLocaleString()} customer${n === 1 ? '' : 's'}. Their invoices are aged by these terms from now on.`}
+            steps={[
+              'A spreadsheet with the columns No. (customer number) and Payment Terms Code, as agreed with the customer: COD, COD/BT, 7 DAYS, 14 DAYS, 30 DAYS, 30-40 DAYS, 45 DAYS, 100%ADV, BILL TO BILL.',
+              'For COD/BT, a BANK Transfers column such as "With in 3 days" gives the days (3 if blank).',
+              'Customers with no terms in the file are left as they are. Change one customer\'s terms on its page.',
+            ]}
+            parse={parseCreditTerms}
+            describe={(rows) => `${rows.length.toLocaleString()} customers in the file, ${rows.filter((r) => r.code).length.toLocaleString()} with terms.`}
+            upload={async (name, rows) => { const r = await rpc('cc_customer_terms_import', { p_file: name, p_rows: rows }); setTermsResult(r); return Number(r?.set ?? 0); }}
+            onDone={load}
+          />
+          {termsResult && (
+            <div className="notice small terms-result">
+              <strong>{termsResult.set} set, {termsResult.unchanged} unchanged, {termsResult.blank} blank in the file.</strong>
+              {termsResult.unknown?.length > 0 && <div>Terms the app couldn&apos;t read (set these on the customer): {termsResult.unknown.map((u) => `${u.customer_no} "${u.code}"`).join(', ')}</div>}
+              {termsResult.not_in_app?.length > 0 && <div>Not in the app (not in the customer list or the ledger): {termsResult.not_in_app.join(', ')}{termsResult.not_in_app_count > termsResult.not_in_app.length ? ` and ${termsResult.not_in_app_count - termsResult.not_in_app.length} more` : ''}</div>}
+            </div>
+          )}
+        </>
       )}
       <p className="hint">Balances and aging: <Link to="/customer-list">Customers</Link> · <Link to="/aging">Customer aging</Link>.</p>
     </section>

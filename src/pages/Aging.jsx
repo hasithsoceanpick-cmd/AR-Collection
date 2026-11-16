@@ -22,6 +22,12 @@ export default function Aging() {
   const [sort, setSort] = useState({ key: 'balance', dir: -1 });
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [terms, setTerms] = useState({});   // customer no. -> credit terms in the app
+  useEffect(() => {
+    rpc('cc_customer_terms', { p_customer_no: null })
+      .then((t) => setTerms(Object.fromEntries((t?.terms ?? []).map((x) => [x.customer_no, x])))).catch(() => {});
+  }, []);
+  const termsOf = (r) => terms[r.customer_no]?.terms ?? r.terms;
   const [marks, setMarks] = useState({});   // customer no. -> its notes and promises by entry (null: follow-up not installed)
 
   const loadMarks = useCallback(async (no) => {
@@ -60,7 +66,7 @@ export default function Aging() {
       const keep = new Set(shown.map((r) => r.customer_no));
       let all = null;
       try { all = await rpc('cc_ar_marks', { p_customer_no: null }); } catch { /* follow-up not installed: no notes or promises in the file */ }
-      await downloadAging({ asAt, rows: shown, entries: entries.filter((e) => keep.has(e.customer_no)), names, marks: all });
+      await downloadAging({ asAt, rows: shown.map((r) => ({ ...r, terms: termsOf(r) })), entries: entries.filter((e) => keep.has(e.customer_no)), names, marks: all });
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -75,7 +81,8 @@ export default function Aging() {
           <button type="button" className="btn" disabled={!data || !shown.length || busy} onClick={excel}>{busy ? 'Preparing…' : 'Download Excel'}</button>
         </div>
       </div>
-      <p className="lede">What each customer owes as at {fmtDate(asAt)}, by how long it has been due. Payments and credit notes not yet applied to an invoice are shown on their own.</p>
+      <p className="lede">What each customer owes as at {fmtDate(asAt)}, by how long it has been due. Payments and credit notes not yet applied to an invoice are shown on their own.
+        {Object.keys(terms).length > 0 && ' Where a customer has credit terms in the app, its invoices are due that many days after the invoice date; otherwise BC’s due date is used.'}</p>
       {error && <p className="error">{error}</p>}
       <LedgerStatus status={data?.status} />
       {data === null ? <p className="muted">Loading…</p> : (
@@ -118,7 +125,7 @@ export default function Aging() {
                     <tr className={`click${open === r.customer_no ? ' on' : ''}`} onClick={() => setOpen(open === r.customer_no ? null : r.customer_no)}>
                       <td>
                         <button type="button" className="link row-toggle" aria-expanded={open === r.customer_no}>{r.name}</button>
-                        <div className="muted small">{r.customer_no}{r.group ? ` · ${r.group}` : ''}{r.terms ? ` · ${r.terms}` : ''}{r.incomplete ? ' · history incomplete' : ''}</div>
+                        <div className="muted small">{r.customer_no}{r.group ? ` · ${r.group}` : ''}{termsOf(r) ? ` · ${termsOf(r)}` : ''}{r.incomplete ? ' · history incomplete' : ''}</div>
                       </td>
                       {COLS.map((c) => <td key={c.key} className={`num${c.key === 'balance' ? ' strong' : ''}${Math.abs(Number(r[c.key])) < 0.005 ? ' zero' : ''}`}>{Math.abs(Number(r[c.key])) < 0.005 ? '–' : lkr(r[c.key])}</td>)}
                     </tr>
@@ -144,7 +151,12 @@ export default function Aging() {
                                 <td>{fmtDate(e.posting_date)}</td>
                                 <td>{fmtDate(e.due_date)}</td>
                                 <td>{Number(e.remaining) < 0 ? <span className="muted">Unapplied credit</span> : e.late > 0 ? `${e.late} days overdue` : 'Not due'}
-                                  {Number(e.remaining) > 0 && <div className="muted small">{bucketLabel(e.late)}</div>}</td>
+                                  {Number(e.remaining) > 0 && <div className="muted small">{bucketLabel(e.late)}{(() => {
+                                    const t = terms[r.customer_no];
+                                    if (!t || !(t.max_days > t.min_days) || e.late <= 0) return '';
+                                    const past = e.late > t.max_days - t.min_days;
+                                    return past ? ` · past ${t.max_days} days` : ` · within ${t.min_days}–${t.max_days} days`;
+                                  })()}</div>}</td>
                                 <td className="num">{lkr(e.original)}</td>
                                 <td className="num strong">{lkr(e.remaining)}</td>
                                 {withMarks && <>

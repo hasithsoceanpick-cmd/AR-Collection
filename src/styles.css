@@ -1330,3 +1330,17 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .aging-detail th.aging-note, .aging-detail td.aging-note { min-width: 16rem; max-width: 26rem; }
 .aging-detail td.aging-note .fu-noteed textarea { min-width: 15rem; }
 .aging-detail .table th, .aging-detail .table td:not(.aging-note) { white-space: nowrap; }
+
+/* credit terms on a customer */
+.terms-box { margin: 0.25rem 0 1rem; padding: 0.7rem 0.9rem; background: var(--surface, #fff); border: 1px solid var(--rule); border-left: 4px solid var(--navy); border-radius: var(--radius); }
+.terms-view { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; justify-content: space-between; align-items: center; }
+.terms-view .flabel { display: block; margin-bottom: 0.1rem; }
+.terms-name { font-size: 1.05rem; margin-right: 0.35rem; }
+.terms-form { display: flex; flex-direction: column; gap: 0.6rem; max-width: 40rem; }
+.terms-form select { max-width: 22rem; }
+.terms-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; }
+.terms-form .row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+.terms-remove { color: var(--red); }
+.terms-history { margin-top: 0.4rem; }
+.terms-history ul { margin: 0.3rem 0 0; padding-left: 1rem; }
+.terms-result div { margin-top: 0.25rem; }

@@ -18,6 +18,8 @@ const QUICK = [
   { key: 'broken', label: 'Broken promise', test: (r) => r.broken_60 > 0 },
   { key: 'disputed', label: 'Disputed', test: (r) => r.disputes_n > 0 },
   { key: 'over90', label: 'Over 90 days', test: (r) => !zero(r.over90) },
+  { key: 'outer', label: 'Past the outer limit', test: (r) => r.window && !zero(r.beyond) },
+  { key: 'window', label: 'Within the credit window', test: (r) => r.window && zero(r.beyond) },
   { key: 'flags', label: 'In credit or over limit', test: (r) => r.in_credit || r.over_limit },
 ];
 
@@ -173,7 +175,9 @@ export default function FollowUp() {
                     <Link to={href} className="fu-name">{r.name}</Link>
                     <div className="muted small">{r.customer_no} · {r.seg}{r.terms ? ` · ${r.terms}` : ''} · {r.owner ?? <em>Unassigned</em>}</div>
                     <div className="fu-flags">
-                      {!r.terms && <span className="pill warn" title="No payment terms in BC: everything is overdue from the invoice date">No terms</span>}
+                      {!r.terms && <span className="pill warn" title="No credit terms in the app or BC: everything is overdue from the invoice date">No terms</span>}
+                      {r.window && !zero(r.beyond) && <span className="pill bad" title={`Overdue past the outer limit of ${r.window.max} days`}>Past {r.window.max} days {lkr(r.beyond)}</span>}
+                      {r.window && zero(r.beyond) && <span className="pill warn" title={`Overdue, but still inside ${r.window.min}–${r.window.max} days`}>Within {r.window.min}–{r.window.max} days</span>}
                       {r.in_credit && <span className="pill warn" title="Unapplied payments and credit notes are more than the invoices: finance to check">In credit</span>}
                       {r.over_limit && <span className="pill bad">Over limit</span>}
                       {r.broken_60 > 0 && <span className="pill bad">{r.broken_60} broken</span>}

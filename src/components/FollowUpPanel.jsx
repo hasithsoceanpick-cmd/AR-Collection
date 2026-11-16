@@ -314,7 +314,7 @@ export default function FollowUpPanel({ customerNo }) {
 
       {c.scope === 'no_group' && <p className="notice fu-pad">This customer has no posting group in BC, so it isn't on the follow-up list. Give it one in BC and upload the customer list again.</p>}
       <div className="fu-flags fu-pad">
-        {!c.terms && <span className="pill warn">No payment terms in BC</span>}
+        {!c.terms && <span className="pill warn">No credit terms in the app or BC</span>}
         {s.in_credit && <span className="pill warn">In credit overall: finance to check</span>}
         {s.over_limit && <span className="pill bad">Over the credit limit of LKR {lkr(c.credit_limit)}</span>}
         {brokenRecent > 0 && <span className="pill bad">{brokenRecent} broken promise{brokenRecent === 1 ? '' : 's'}</span>}

@@ -121,6 +121,23 @@ export async function parseCustomers(file) {
   return out;
 }
 
+// A credit terms file: No., Payment Terms Code (as agreed, e.g. "30-40 DAYS", "COD/BT"), and for COD/BT the bank-transfer days.
+const TERMS_COLUMNS = { customer_no: ['no', 'customerno'], code: ['paymenttermscode', 'creditterms', 'terms', 'paymentterms'], bank: ['banktransfers', 'banktransfer'] };
+const TERMS_REQUIRED = { customer_no: 'No.', code: 'Payment Terms Code' };
+export async function parseCreditTerms(file) {
+  const rows = await readSheet(file);
+  const h = mapHeader(rows, TERMS_COLUMNS, TERMS_REQUIRED);
+  if (!h) throw new Error(missingMessage('credit terms file', TERMS_REQUIRED));
+  const get = (row, k) => (h.map[k] === undefined ? null : row[h.map[k]]);
+  const out = [];
+  for (const row of rows.slice(h.row + 1)) {
+    const no = toText(get(row, 'customer_no'));
+    if (no) out.push({ customer_no: no, code: toText(get(row, 'code')), bank: toText(get(row, 'bank')) });
+  }
+  if (!out.length) throw new Error('The file has the right columns but no customers in it.');
+  return out;
+}
+
 export async function parseLedger(file) {
   const rows = await readSheet(file);
   const h = mapHeader(rows, LEDGER_COLUMNS, LEDGER_REQUIRED);
