@@ -1316,3 +1316,17 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
   .fu-table td.fu-expand-cell::before { content: none; }
   .fu-keys { display: none; }
 }
+
+/* invoice promised tick and entry notes on the aging page */
+.fu-promise { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.4rem; }
+.fu-tick { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; white-space: nowrap; }
+.fu-tick input { width: 1.1rem; height: 1.1rem; accent-color: var(--navy); }
+.fu-promise-ed { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.fu-promise-ed input[type=date] { min-width: 9.5rem; }
+.fu-promise-amt { display: inline-flex; align-items: center; gap: 0.3rem; }
+.fu-promise-amt input { width: 8.5rem; text-align: right; }
+.fu-invnote-promise { margin: 0.1rem 0; }
+.aging-detail th.aging-promise, .aging-detail td.aging-promise { min-width: 14rem; }
+.aging-detail th.aging-note, .aging-detail td.aging-note { min-width: 16rem; max-width: 26rem; }
+.aging-detail td.aging-note .fu-noteed textarea { min-width: 15rem; }
+.aging-detail .table th, .aging-detail .table td:not(.aging-note) { white-space: nowrap; }

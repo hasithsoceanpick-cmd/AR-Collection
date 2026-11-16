@@ -198,7 +198,7 @@ export default function FollowUp() {
                 {isOpen && (
                   <tr className="fu-expand">
                     <td colSpan="7" className="fu-expand-cell" aria-label={`${r.name}: invoices and notes`}>
-                      <InvoiceNotes customerNo={r.customer_no} onChange={(n) => setRow(r.customer_no, { inv_notes: n })} />
+                      <InvoiceNotes customerNo={r.customer_no} onChange={(n) => setRow(r.customer_no, { inv_notes: n })} onPromise={load} />
                     </td>
                   </tr>
                 )}

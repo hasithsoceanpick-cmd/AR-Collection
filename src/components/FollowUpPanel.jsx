@@ -345,7 +345,7 @@ export default function FollowUpPanel({ customerNo }) {
 
       {c.scope === 'local' && (data.invoices.length > 0 || data.closed_notes?.length > 0) && (
         <details className="fu-pad fu-onway" open>
-          <summary><strong>Invoices and notes ({data.invoices.length} open)</strong> <span className="muted small">a note on any invoice line</span></summary>
+          <summary><strong>Invoices, promises and notes ({data.invoices.length} open)</strong> <span className="muted small">tick an invoice as promised, or note any line</span></summary>
           <InvoiceNotes customerNo={c.customer_no} data={data} onChange={load} />
         </details>
       )}

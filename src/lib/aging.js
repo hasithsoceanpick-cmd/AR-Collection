@@ -1,3 +1,4 @@
+import { PROMISE } from './followup';
 // Customer aging and ledgers: bucket names, entry labels and the Excel downloads.
 
 export const BUCKETS = [
@@ -49,7 +50,7 @@ function sheet(XLSX, rows, { dates = [], money = [], widths = [], filterFrom = n
 const num = (v) => (v == null ? null : Math.round(Number(v) * 100) / 100);
 
 // The aging report: a summary per customer and every open entry.
-export async function downloadAging({ asAt, rows, entries, names }) {
+export async function downloadAging({ asAt, rows, entries, names, marks = null }) {
   const XLSX = await import('xlsx');
   const head = ['Customer No.', 'Customer', 'Group', 'Payment terms', ...BUCKETS.map((b) => b.label), 'Unapplied credits', 'Balance'];
   const keys = [...BUCKETS.map((b) => b.key), 'credits', 'balance'];
@@ -60,14 +61,26 @@ export async function downloadAging({ asAt, rows, entries, names }) {
     ...rows.map((r) => [r.customer_no, r.name, r.group ?? '', r.terms ?? '', ...keys.map((k) => num(r[k]))]),
     ['', `Total: ${rows.length} customer${rows.length === 1 ? '' : 's'}`, '', '', ...keys.map(sum)],
   ];
+  const key = (c, d) => `${c}|${d}`;
+  const noteBy = new Map((marks?.notes ?? []).map((n) => [key(n.customer_no, n.doc_no), n]));
+  const promiseBy = new Map((marks?.promises ?? []).map((p) => [key(p.customer_no, p.doc_no), p]));
+  const extra = marks ? ['Promised by', 'Promised amount', 'Promise status', 'Note'] : [];
+  const marksOf = (e) => {
+    if (!marks) return [];
+    const p = promiseBy.get(key(e.customer_no, e.document_no));
+    const n = noteBy.get(key(e.customer_no, e.document_no));
+    return [p ? excelDate(p.promised_on) : null, p ? num(p.amount) : null, p ? (PROMISE[p.status]?.label ?? p.status) : '', n ? `${n.text} (${n.by})` : ''];
+  };
   const detail = [
-    ['Customer No.', 'Customer', 'Posting date', 'Due date', 'Days overdue', 'Bucket', 'Type', 'Document No.', 'Description', 'Original amount', 'Remaining'],
+    ['Customer No.', 'Customer', 'Posting date', 'Due date', 'Days overdue', 'Bucket', 'Type', 'Document No.', 'Description', 'Original amount', 'Remaining', ...extra],
     ...entries.map((e) => [e.customer_no, names[e.customer_no] ?? e.customer_no, excelDate(e.posting_date), excelDate(e.due_date), Math.max(0, e.late),
-      Number(e.remaining) < 0 ? 'Unapplied credit' : bucketLabel(e.late), docType(e.document_type, e.original), e.document_no, e.description ?? '', num(e.original), num(e.remaining)]),
+      Number(e.remaining) < 0 ? 'Unapplied credit' : bucketLabel(e.late), docType(e.document_type, e.original), e.document_no, e.description ?? '', num(e.original), num(e.remaining),
+      ...marksOf(e)]),
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet(XLSX, summary, { money: [4, 5, 6, 7, 8, 9, 10], widths: [12, 38, 10, 12, 15, 15, 15, 15, 15, 16, 16], filterFrom: 2, filterTo: summary.length - 2 }), 'Aging');
-  XLSX.utils.book_append_sheet(wb, sheet(XLSX, detail, { dates: [2, 3], money: [9, 10], widths: [12, 34, 12, 12, 8, 16, 12, 16, 30, 16, 16], filterFrom: 0, filterTo: detail.length - 1 }), 'Open entries');
+  XLSX.utils.book_append_sheet(wb, sheet(XLSX, detail, { dates: marks ? [2, 3, 11] : [2, 3], money: marks ? [9, 10, 12] : [9, 10],
+    widths: [12, 34, 12, 12, 8, 16, 12, 16, 30, 16, 16, ...(marks ? [12, 16, 14, 50] : [])], filterFrom: 0, filterTo: detail.length - 1 }), 'Open entries');
   XLSX.writeFile(wb, `Customer aging ${asAt}.xlsx`);
 }
 

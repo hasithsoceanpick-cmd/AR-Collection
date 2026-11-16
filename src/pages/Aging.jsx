@@ -1,9 +1,11 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rpc } from '../lib/supabase';
 import { lkr, fmtDate, todayISO } from '../lib/format';
 import { BUCKETS, OVERDUE, bucketLabel, docType, unpack, downloadAging } from '../lib/aging';
 import LedgerStatus from '../components/LedgerStatus';
+import NoteEditor from '../components/NoteEditor';
+import InvoicePromise from '../components/InvoicePromise';
 
 const COLS = [...BUCKETS, { key: 'credits', label: 'Unapplied credits' }, { key: 'balance', label: 'Balance' }];
 const overdue = (r) => OVERDUE.reduce((a, k) => a + Number(r[k] ?? 0), 0);
@@ -20,6 +22,13 @@ export default function Aging() {
   const [sort, setSort] = useState({ key: 'balance', dir: -1 });
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [marks, setMarks] = useState({});   // customer no. -> its notes and promises by entry (null: follow-up not installed)
+
+  const loadMarks = useCallback(async (no) => {
+    try { const m = await rpc('cc_ar_marks', { p_customer_no: no }); setMarks((s) => ({ ...s, [no]: m })); }
+    catch { setMarks((s) => ({ ...s, [no]: null })); }
+  }, []);
+  useEffect(() => { if (open && !(open in marks)) loadMarks(open); }, [open, marks, loadMarks]);
 
   useEffect(() => {
     let live = true;
@@ -49,7 +58,9 @@ export default function Aging() {
     try {
       const names = Object.fromEntries(data.rows.map((r) => [r.customer_no, r.name]));
       const keep = new Set(shown.map((r) => r.customer_no));
-      await downloadAging({ asAt, rows: shown, entries: entries.filter((e) => keep.has(e.customer_no)), names });
+      let all = null;
+      try { all = await rpc('cc_ar_marks', { p_customer_no: null }); } catch { /* follow-up not installed: no notes or promises in the file */ }
+      await downloadAging({ asAt, rows: shown, entries: entries.filter((e) => keep.has(e.customer_no)), names, marks: all });
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -111,15 +122,22 @@ export default function Aging() {
                       </td>
                       {COLS.map((c) => <td key={c.key} className={`num${c.key === 'balance' ? ' strong' : ''}${Math.abs(Number(r[c.key])) < 0.005 ? ' zero' : ''}`}>{Math.abs(Number(r[c.key])) < 0.005 ? '–' : lkr(r[c.key])}</td>)}
                     </tr>
-                    {open === r.customer_no && (
+                    {open === r.customer_no && (() => {
+                      const m = marks[r.customer_no];
+                      const withMarks = m && !m.hidden;
+                      const noteOf = (doc) => (withMarks ? m.notes.find((n) => n.doc_no === doc) ?? null : null);
+                      const promiseOf = (doc) => (withMarks ? m.promises.find((x) => x.doc_no === doc) ?? null : null);
+                      return (
                       <tr className="aging-detail"><td colSpan={COLS.length + 1}>
                         <div className="row between">
                           <strong>{r.open} open invoice{r.open === 1 ? '' : 's'}{r.oldest > 0 ? `, the oldest ${r.oldest} days overdue` : ''}</strong>
                           <Link to={`/customer/${encodeURIComponent(r.customer_no)}?to=${asAt}`}>Open the customer's ledger</Link>
                         </div>
+                        {m?.hidden && <p className="muted small">Notes and promises on this customer are kept by {m.owner}.</p>}
                         <div className="table-wrap flat">
                           <table className="table">
-                            <thead><tr><th>Document</th><th>Posted</th><th>Due</th><th>Age</th><th className="num">Original</th><th className="num">Open</th></tr></thead>
+                            <thead><tr><th>Document</th><th>Posted</th><th>Due</th><th>Age</th><th className="num">Original</th><th className="num">Open</th>
+                              {withMarks && <><th className="aging-promise">Promised</th><th className="aging-note">Note</th></>}</tr></thead>
                             <tbody>{(byCustomer[r.customer_no] ?? []).map((e) => (
                               <tr key={`${e.document_no}-${e.posting_date}-${e.remaining}`}>
                                 <td>{e.document_no}<div className="muted small">{docType(e.document_type, e.original)}{e.description ? ` · ${e.description}` : ''}</div></td>
@@ -129,12 +147,21 @@ export default function Aging() {
                                   {Number(e.remaining) > 0 && <div className="muted small">{bucketLabel(e.late)}</div>}</td>
                                 <td className="num">{lkr(e.original)}</td>
                                 <td className="num strong">{lkr(e.remaining)}</td>
+                                {withMarks && <>
+                                  <td className="aging-promise">{Number(e.remaining) > 0
+                                    ? <InvoicePromise customerNo={r.customer_no} docNo={e.document_no} open={e.remaining} promise={promiseOf(e.document_no)}
+                                        canWrite={m.can.write} today={m.today} onChanged={() => loadMarks(r.customer_no)} />
+                                    : <span className="muted">–</span>}</td>
+                                  <td className="aging-note"><NoteEditor customerNo={r.customer_no} docNo={e.document_no} note={noteOf(e.document_no)}
+                                    canWrite={m.can.write} onSaved={() => loadMarks(r.customer_no)} /></td>
+                                </>}
                               </tr>
                             ))}</tbody>
                           </table>
                         </div>
                       </td></tr>
-                    )}
+                      );
+                    })()}
                   </Fragment>
                 ))}</tbody>
                 <tfoot><tr>
