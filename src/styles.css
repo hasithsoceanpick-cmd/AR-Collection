@@ -1344,3 +1344,39 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .terms-history { margin-top: 0.4rem; }
 .terms-history ul { margin: 0.3rem 0 0; padding-left: 1rem; }
 .terms-result div { margin-top: 0.25rem; }
+
+/* ---------- Customer aging: receipts in the app not in BC yet, several invoices promised at once ---------- */
+.pending-dot { display: inline-block; flex: none; width: 0.55rem; height: 0.55rem; margin-right: 0.35rem; border-radius: 50%;
+  background: var(--sky); box-shadow: 0 0 0 2px #DCEEF9; vertical-align: 0.05em; }
+.hovercard-trigger { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: help; text-align: left; }
+.hovercard-trigger.link { color: var(--blue); text-decoration: underline; cursor: pointer; }
+.pending-mark { display: inline-flex; align-items: center; margin-top: 0.25rem; padding: 0.1rem 0.55rem; border: 1.5px solid var(--sky-ink);
+  border-radius: 999px; color: var(--sky-ink); background: #EEF6FC; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; }
+.pending-mark:hover, .pending-mark:focus-visible { background: #DCEEF9; }
+.pending-amt { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0.1rem; text-align: right; white-space: nowrap; }
+.pending-amt-v { display: inline-flex; align-items: center; font-weight: 700; border-bottom: 1.5px dotted var(--sky-ink); }
+.pending-sub { color: var(--sky-ink); font-weight: 400; }
+.aging-table > tbody > tr.has-pending > td:first-child, .aging-detail tr.has-pending > td:first-child { box-shadow: inset 3px 0 0 var(--sky); }
+.hovercard { position: fixed; z-index: 60; width: min(25rem, calc(100vw - 16px)); max-height: min(60vh, 30rem); overflow-y: auto;
+  padding: 0.6rem 0.8rem; background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-left: 4px solid var(--sky);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(30, 42, 94, 0.18); font-size: 0.875rem; font-weight: 400; text-align: left; white-space: normal; }
+.pending-card-head { margin: 0 0 0.3rem; }
+.pending-card ul { list-style: none; margin: 0; padding: 0; }
+.pending-card li { padding: 0.45rem 0; display: grid; gap: 0.15rem; }
+.pending-card li + li { border-top: 1px solid var(--rule); }
+.pending-line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.25rem 0.5rem; }
+.pending-instr { margin: 0.2rem 0 0; padding: 0.3rem 0.5rem; background: #F4F8FB; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.aging-table .aging-detail th.aging-sel, .aging-table .aging-detail td.aging-sel { min-width: 0; width: 2.2rem; padding-right: 0; }
+.aging-sel input { width: 1.1rem; height: 1.1rem; accent-color: var(--navy); vertical-align: middle; }
+.aging-detail tr.ticked > td { background: #F1F4FB; }
+.aging-bulk { position: sticky; left: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin: 0.5rem 0; padding: 0.5rem 0.75rem;
+  background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--navy); border-radius: var(--radius); }
+.aging-bulk-date { display: inline-flex; align-items: center; gap: 0.4rem; }
+.aging-bulk-date input { min-width: 9.5rem; }
+.aging-bulk-msg { margin: 0.5rem 0; padding: 0.5rem 0.75rem; background: #F1F8EC; border-left: 4px solid var(--leaf); border-radius: var(--radius); }
+.aging-bulk-msg.error { background: #FDECEC; border-left-color: var(--red); color: var(--red); }
+.aging-bulk-msg ul { margin: 0.25rem 0; padding-left: 1.1rem; }
+.aging-bulk-hint { margin: 0.4rem 0; }
+.aging-loose { margin: 0.5rem 0 0; color: var(--sky-ink); display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; }
+.aging-detail .aging-bulk, .aging-detail .aging-bulk-msg, .aging-detail .aging-bulk-hint, .aging-detail .aging-loose { position: sticky; left: 0.25rem; box-sizing: border-box; max-width: min(100%, calc(100vw - 2.5rem)); }
+.field.inline .flabel { white-space: nowrap; }
