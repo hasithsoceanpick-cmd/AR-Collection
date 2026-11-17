@@ -94,7 +94,7 @@ export default function CustomerPage() {
         </div>
       )}
 
-      {(role === 'finance' || role === 'executive') && <FollowUpPanel customerNo={no} />}
+      {['finance', 'executive', 'sales'].includes(role) && <FollowUpPanel customerNo={no} />}
 
       <div className="facts">
         <h2>Open at {fmtDate(data.to)} ({data.open.length})</h2>

@@ -8,7 +8,7 @@ import GlobalSearch from './GlobalSearch';
 import UploadMenu from './UploadMenu';
 import Icon from './Icon';
 import { useChatUnread } from '../lib/chat';
-import { financeSections, sectionFor, countOf, SETTINGS_PATHS } from '../lib/sections';
+import { financeSections, salesSections, sectionFor, countOf, SETTINGS_PATHS } from '../lib/sections';
 
 const ROLE_LABEL = { sales: 'Sales', driver: 'Driver', finance: 'Finance', executive: 'Management' };
 
@@ -39,10 +39,11 @@ export function navLinks(role, isAdmin = false) {
       { to: '/payhere', label: s ? 'PayHere web payments' : 'PayHere' }, { to: '/not-in-bc', label: 'Not in BC yet' }] : []),
     ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),
     { to: '/reports', label: 'Reports', main: true },
-    ...(s || f ? [{ to: '/customer-list', label: 'Customers' }, { to: '/aging', label: 'Customer aging' }] : []),
+    ...(s ? [{ to: '/customer-list', label: 'Customers', section: 'customers' }, { to: '/followup', label: 'AR follow-up', section: 'followup', count: ['ar_due'] }] : []),
+    ...(f ? [{ to: '/customer-list', label: 'Customers' }, { to: '/aging', label: 'Customer aging' }] : []),
     ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }, { to: '/bc-export', label: 'Export to BC' },
       { to: '/bc-check', label: 'BC check' }, { to: '/bank-rec', label: 'Bank rec' }] : []),
-    ...(s || f ? [{ to: '/customers', label: 'Customer data' }] : []),
+    ...(f ? [{ to: '/customers', label: 'Customer data' }] : []),
     ...(f ? [{ to: '/photos', label: 'Photo storage' }, { to: '/users', label: 'People' }] : []),
     ...(f && isAdmin ? [{ to: '/backup', label: 'Data backup' }] : []),
     { to: '/chat', label: 'Team chat', chat: true },
@@ -96,30 +97,38 @@ function SectionTabs({ section, path, today }) {
 export default function Layout() {
   const { profile, role, isAdmin, actingRole } = useAuth();
   const fin = role === 'finance';
+  const sales = role === 'sales';
   const unread = useChatUnread();
   const loc = useLocation();
   const [today, setToday] = useState(null);
   const last = useRef(0);
 
-  // finance: everything waiting (Today page, menu counts), refreshed every 2 minutes and when moving between pages
+  // finance: everything waiting (Today page, menu counts); Sales: follow-ups due today.
+  // Refreshed every 2 minutes and when moving between pages.
+  const counted = fin || sales;
   const loadToday = useCallback(async () => {
-    if (!fin) return;
+    if (!counted) return;
     last.current = Date.now();
     try {
+      if (!fin) {
+        const ar = await rpc('cc_ar_tick').catch(() => null);
+        setToday(ar ? { ar, queue: { ar_due: { count: ar.due } } } : null);
+        return;
+      }
       const [t, ar] = await Promise.all([rpc('cc_finance_today'), rpc('cc_ar_tick').catch(() => null)]);
       setToday(ar ? { ...t, ar, queue: { ...(t?.queue ?? {}), ar_due: { count: ar.due } } } : t);
     } catch { /* keep the last counts */ }
-  }, [fin]);
+  }, [fin, counted]);
   useEffect(() => {
-    if (!fin) { setToday(null); return undefined; }
+    if (!counted) { setToday(null); return undefined; }
     loadToday();
     const t = setInterval(loadToday, 120000);
     return () => clearInterval(t);
-  }, [fin, loadToday]);
-  useEffect(() => { if (fin && Date.now() - last.current > 20000) loadToday(); }, [loc.pathname, fin, loadToday]);
+  }, [counted, loadToday]);
+  useEffect(() => { if (counted && Date.now() - last.current > 20000) loadToday(); }, [loc.pathname, counted, loadToday]);
 
   const sections = fin ? financeSections(isAdmin) : [];
-  const here = fin ? sectionFor(loc.pathname, sections) : null;
+  const here = fin ? sectionFor(loc.pathname, sections) : sales ? sectionFor(loc.pathname, salesSections()) : null;
   const inSettings = fin && SETTINGS_PATHS.some((p) => loc.pathname === p || loc.pathname.startsWith(`${p}/`));
   const links = fin ? [] : navLinks(role, isAdmin);
 
@@ -176,8 +185,10 @@ export default function Layout() {
           <NavLink to="/more" className="nav-more nav-sec"><Icon name="menu" /><span className="nav-label">More</span>{unread > 0 && <span className="nav-badge">{unread > 99 ? '99+' : unread}</span>}</NavLink>
         </>) : (<>
           {links.map((l) => (
-            <NavLink key={l.to} to={l.to} end={l.end} className={l.main ? 'nav-main' : 'nav-extra'}>
+            <NavLink key={l.to} to={l.to} end={l.end}
+              className={({ isActive }) => `${l.main ? 'nav-main' : 'nav-extra'}${(l.section ? here?.section.key === l.section : isActive) ? ' active' : ''}`}>
               {l.label}{l.chat && unread > 0 && <span className="nav-badge" aria-label={`${unread} unread`}>{unread > 99 ? '99+' : unread}</span>}
+              {l.count && badge(countOf(l.count, today))}
             </NavLink>
           ))}
           <NavLink to="/more" className="nav-more">More{unread > 0 && <span className="nav-badge" aria-label={`${unread} unread in Team chat`}>{unread > 99 ? '99+' : unread}</span>}</NavLink>

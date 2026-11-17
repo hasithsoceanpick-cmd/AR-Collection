@@ -56,8 +56,8 @@ function Gate() {
         {role === 'finance' && <Route path="bc-close" element={<BcClose />} />}
         {role === 'finance' && <Route path="money-in" element={<MoneyIn />} />}
         {role === 'finance' && <Route path="settings" element={<Settings />} />}
-        {role === 'finance' && <Route path="followup" element={<FollowUp />} />}
-        {role === 'finance' && <Route path="followup/promises" element={<FollowUpPromises />} />}
+        {(role === 'finance' || role === 'sales') && <Route path="followup" element={<FollowUp />} />}
+        {(role === 'finance' || role === 'sales') && <Route path="followup/promises" element={<FollowUpPromises />} />}
         {role === 'finance' && <Route path="followup/owners" element={<FollowUpOwners />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}

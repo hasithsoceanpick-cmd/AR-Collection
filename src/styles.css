@@ -1380,3 +1380,5 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .aging-loose { margin: 0.5rem 0 0; color: var(--sky-ink); display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem; }
 .aging-detail .aging-bulk, .aging-detail .aging-bulk-msg, .aging-detail .aging-bulk-hint, .aging-detail .aging-loose { position: sticky; left: 0.25rem; box-sizing: border-box; max-width: min(100%, calc(100vw - 2.5rem)); }
 .field.inline .flabel { white-space: nowrap; }
+/* phone menu bar for Sales and drivers: tighter, so More (which holds Customers and AR follow-up for Sales) is never cut off */
+@media (max-width: 899px) { .shell:not(.fin) .sidenav a { padding-left: 0.6rem; padding-right: 0.6rem; } }

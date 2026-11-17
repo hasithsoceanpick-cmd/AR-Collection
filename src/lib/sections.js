@@ -50,6 +50,24 @@ export function financeSections(isAdmin = false) {
   ];
 }
 
+// Sales: the Customers and AR follow-up sections, as finance has them, with their tabs above the page.
+// Sales see their own and unassigned customers on the worklist; owners are set by a Finance Admin.
+export function salesSections() {
+  return [
+    { key: 'customers', label: 'Customers', to: '/customer-list',
+      tabs: [
+        { to: '/customer-list', label: 'Customers', also: ['/customer/'] },
+        { to: '/aging', label: 'Aging' },
+        { to: '/customers', label: 'BC customer files' },
+      ] },
+    { key: 'followup', label: 'AR follow-up', to: '/followup', count: ['ar_due'],
+      tabs: [
+        { to: '/followup', label: 'Worklist', exact: true, count: ['ar_due'] },
+        { to: '/followup/promises', label: 'Promises' },
+      ] },
+  ];
+}
+
 export const SETTINGS_PATHS = ['/settings', '/users', '/photos', '/backup', '/account', '/chat'];
 
 const onTab = (t, path) => (t.exact ? path === t.to : path === t.to || path.startsWith(`${t.to}/`) || (t.also ?? []).some((a) => (a.endsWith('/') ? path.startsWith(a) : path === a)));

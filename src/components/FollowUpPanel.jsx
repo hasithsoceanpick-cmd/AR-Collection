@@ -280,7 +280,8 @@ export default function FollowUpPanel({ customerNo }) {
     ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   }, [data]);
 
-  if (error) return <section id="follow-up" className="mi-card fu-panel"><div className="mi-head"><h2>Follow-up</h2></div><p className="error fu-pad">{error}</p></section>;
+  // another sales person's customer: say who follows it up, not an error
+  if (error) return <section id="follow-up" className="mi-card fu-panel"><div className="mi-head"><h2>Follow-up</h2></div><p className={`${error.includes(' is followed up by ') ? 'muted' : 'error'} fu-pad`}>{error}</p></section>;
   if (!data) return <section id="follow-up" className="mi-card fu-panel"><div className="mi-head"><h2>Follow-up</h2></div><p className="muted fu-pad">Loading…</p></section>;
   const c = data.customer;
   const s = data.summary;
