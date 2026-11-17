@@ -15,18 +15,32 @@ import TransferForm from './pages/TransferForm';
 import Deposits from './pages/Deposits';
 import Reports from './pages/Reports';
 import Bank from './pages/Bank';
+import Chat from './pages/Chat';
+import Backup from './pages/Backup';
 import More from './pages/More';
 import Overview from './pages/Overview';
 import BcExport from './pages/BcExport';
 import BcCheck from './pages/BcCheck';
 import BankRec from './pages/BankRec';
+import AdminOverview from './pages/AdminOverview';
 import { CashList, CashForm, CashDetail, CashReceipt } from './pages/Cash';
 import { MerchantPage, MerchantStatement, MerchantAdd } from './pages/Merchant';
 import CardForm from './pages/CardForm';
 import NotInBc from './pages/NotInBc';
+import Aging from './pages/Aging';
+import CustomerList from './pages/CustomerList';
+import CustomerPage from './pages/CustomerPage';
+import PayHerePage from './pages/PayHere';
+import Today from './pages/Today';
+import MoneyIn from './pages/MoneyIn';
+import BcClose from './pages/BcClose';
+import Settings from './pages/Settings';
+import FollowUp from './pages/FollowUp';
+import FollowUpPromises from './pages/FollowUpPromises';
+import FollowUpOwners from './pages/FollowUpOwners';
 
 function Gate() {
-  const { session, loading, role } = useAuth();
+  const { session, loading, role, isAdmin } = useAuth();
   if (loading) return <div className="login"><p className="muted">Loading…</p></div>;
   if (!session) return <Login />;
   if (!role) return <NoAccess />;
@@ -34,10 +48,17 @@ function Gate() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={role === 'executive' ? <Overview /> : <List />} />
+        <Route index element={role === 'executive' ? <Overview /> : role === 'finance' ? <Today /> : <List />} />
         <Route path="collections" element={<List />} />
         {(role === 'finance' || role === 'executive') && <Route path="overview" element={<Overview />} />}
         {role === 'finance' && <Route path="bc-export" element={<BcExport />} />}
+        {role === 'finance' && <Route path="bc" element={<Navigate to="/bc-export" replace />} />}
+        {role === 'finance' && <Route path="bc-close" element={<BcClose />} />}
+        {role === 'finance' && <Route path="money-in" element={<MoneyIn />} />}
+        {role === 'finance' && <Route path="settings" element={<Settings />} />}
+        {role === 'finance' && <Route path="followup" element={<FollowUp />} />}
+        {role === 'finance' && <Route path="followup/promises" element={<FollowUpPromises />} />}
+        {role === 'finance' && <Route path="followup/owners" element={<FollowUpOwners />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="cash" element={<CashList />} />}
@@ -54,11 +75,18 @@ function Gate() {
         {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant" element={<MerchantPage />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="merchant/s/:id" element={<MerchantStatement />} />}
         {role === 'finance' && <Route path="merchant/new" element={<MerchantAdd />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="payhere" element={<PayHerePage />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="not-in-bc" element={<NotInBc />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="aging" element={<Aging />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="customer-list" element={<CustomerList />} />}
+        {['sales', 'finance', 'executive'].includes(role) && <Route path="customer/:no" element={<CustomerPage />} />}
         {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}
         <Route path="more" element={<More />} />
+        <Route path="chat" element={<Chat />} />
+        {role === 'finance' && isAdmin && <Route path="backup" element={<Backup />} />}
+        {role === 'finance' && isAdmin && <Route path="admin" element={<AdminOverview />} />}
         {role === 'finance' && <Route path="photos" element={<Photos />} />}
         {role === 'finance' && <Route path="users" element={<Users />} />}
         <Route path="account" element={<Account />} />
