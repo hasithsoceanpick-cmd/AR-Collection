@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { rpc } from '../../lib/supabase';
-import { dmy, downloadWatchlists, kg, money, mLong, num0, num1 } from '../../lib/analysis';
-import { AnPage, DataNote, Loading, useAnStatus } from './AnCommon';
+import { dmy, downloadWatchlists, kg, money, num0, num1, rangeText } from '../../lib/analysis';
+import { AnPage, DataNote, Loading, ModeNote, useAnMode, useAnStatus } from './AnCommon';
 
 const LISTS = [['slower', 'Paying slower'], ['less', 'Buying less'], ['gap', 'Billed more than collected']];
 const cust = (r) => (
@@ -43,15 +43,17 @@ export default function AnWatchlists() {
   const { status, reload } = useAnStatus();
   const [sp, setSp] = useSearchParams();
   const list = LISTS.some(([k]) => k === sp.get('list')) ? sp.get('list') : 'slower';
+  const [mode] = useAnMode();
   const [wl, setWl] = useState(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
-  const load = () => rpc('cc_an_watchlists').then((d) => { setWl(d); setError(''); }).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => rpc('cc_an_watchlists', { p_mode: mode }).then((d) => { setWl(d); setError(''); }).catch((e) => setError(e.message)), [mode]);
+  useEffect(() => { load(); }, [load]);
   const s = wl?.settings;
   return (
-    <AnPage title="Watchlists" lede="Customers whose buying or paying has changed, from the latest uploads."
+    <AnPage title="Watchlists" lede="Customers whose buying or paying has changed."
       actions={<button type="button" className="btn" disabled={!wl} onClick={() => downloadWatchlists(wl, status)}>Download Excel</button>}>
+      <ModeNote data={wl} />
       <DataNote status={status} />
       {!wl ? <Loading error={error} /> : (
         <>
@@ -62,11 +64,11 @@ export default function AnWatchlists() {
             ))}
           </div>
           <div className="an-rule">
-            {list === 'slower' && <p>Days to pay in {mLong(wl.recent_from)} to {mLong(wl.to.slice(0, 7) + '-01')} at least <strong>{s.slower_days} days</strong> more than over the
-              12 months, from 2 payments lately and 4 in the year. Clearing an old invoice counts too: open the customer to see which.</p>}
+            {list === 'slower' && <p>Days to pay from {rangeText(wl.recent_from, wl.to)} at least <strong>{s.slower_days} days</strong> more than over the
+              12 months ({rangeText(wl.from, wl.to)}), from 2 payments lately and 4 in the year. Clearing an old invoice counts too: open the customer to see which.</p>}
             {list === 'less' && <p>Regular buyers (orders on 3 or more days in the 90 days before) whose kg in the 30 days to {dmy(wl.anchor)} is at least
               <strong> {s.less_pct}% below</strong> their 30-day average, or who haven't ordered for <strong>{s.quiet_days} days</strong>.</p>}
-            {list === 'gap' && <p>Billed at least <strong>LKR {money(s.gap_min)}</strong> more than collected in {mLong(wl.recent_from)} to {mLong(wl.to.slice(0, 7) + '-01')},
+            {list === 'gap' && <p>Billed at least <strong>LKR {money(s.gap_min)}</strong> more than collected from {rangeText(wl.recent_from, wl.to)},
               with the balance higher at the end than before.</p>}
             {status?.can?.change && !editing && <button type="button" className="link small" onClick={() => setEditing(true)}>Change these limits</button>}
           </div>

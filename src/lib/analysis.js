@@ -25,6 +25,23 @@ const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', '
 export const mShort = (iso) => (iso ? `${MON[Number(iso.slice(5, 7)) - 1]} ${iso.slice(2, 4)}` : '');
 export const mLong = (iso) => (iso ? `${MONTH[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '');
 export const windowLabel = (months) => (months?.length ? `${mLong(months[0])} to ${mLong(months[months.length - 1])}` : '');
+// The two windows: the 12 months to today, or to the end of the last complete month.
+export const MODES = [['todate', '12 months to date'], ['month', '12 months to the last complete month']];
+export const modeLabel = (m) => (m === 'month' ? '12 months to the last complete month' : '12 months to date');
+export const rangeText = (from, to) => (from && to ? `${dmy(from)} to ${dmy(to)}` : '');
+// Each month of a window, with the days it covers when the window starts or ends part-way through it (12 months to date).
+export function periods(months, from, to) {
+  const list = months ?? [];
+  return list.map((m, i) => {
+    const end = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
+    const a = i === 0 && from ? Number(from.slice(8, 10)) : 1;
+    const b = i === list.length - 1 && to && to.slice(0, 7) === m.slice(0, 7) ? Number(to.slice(8, 10)) : end;
+    const partial = a !== 1 || b !== end;
+    const label = mShort(m);
+    const part = partial ? `${a} to ${b} ${MON[Number(m.slice(5, 7)) - 1]}` : '';
+    return { m, label, part, partial, title: partial ? `${label} (${part})` : label };
+  });
+}
 export { dmy };
 export const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')}`;
 export const sum = (a) => (a ?? []).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -58,7 +75,7 @@ export function changeClass(v, list, kind) {
   if (v == null) return '';
   const vals = (list ?? []).filter((x) => x != null).map(Number);
   if (vals.length < 3) return '';
-  const avg = kind === 'amount' ? sum(list) / list.length : vals.reduce((a, b) => a + b, 0) / vals.length;
+  const avg = kind === 'amount' ? sum(list) / 12 : vals.reduce((a, b) => a + b, 0) / vals.length; // the window is 12 months
   if (kind === 'amount') {
     if (avg <= 0 || Number(v) === 0) return ''; // a month with nothing is left blank, not coloured
     const r = Number(v) / avg - 1;
@@ -126,50 +143,50 @@ async function book(name, sheets) {
   XLSX.writeFile(wb, name);
 }
 const stamp = (status) => `Local customers. Customer ledger to ${dmy(status?.ledger?.last)}, item ledger to ${dmy(status?.entries?.last)}. Downloaded ${dmy(new Date().toISOString().slice(0, 10))}.`;
-const monthCols = (months, kind, w = 11) => months.map((m) => [mShort(m), kind, w]);
+const monthCols = (x, kind, w = 11) => periods(x.months, x.from, x.to).map((p) => [p.partial ? `${p.label} (${p.part})` : p.label, kind, w]);
 
 export function downloadOverview(ov, status) {
-  const t = [`Analysis overview: ${windowLabel(ov.months)}`, stamp(status)];
-  const rows = ov.by_month.map((m) => [m.m.slice(0, 7), m.billed, m.collected, m.cvb_pct, m.on_time_pct, m.paid_pct, m.days, m.fish_kg, m.byp_kg, m.item_amount, m.customers]);
+  const t = [`Analysis overview: ${modeLabel(ov.mode)}, ${rangeText(ov.from, ov.to)}`, stamp(status)];
+  const rows = ov.by_month.map((m, i) => [periods(ov.months, ov.from, ov.to)[i].title, m.billed, m.collected, m.cvb_pct, m.on_time_pct, m.paid_pct, m.days, m.fish_kg, m.byp_kg, m.item_amount, m.customers]);
   const y = ov.year;
   rows.push(['12 months', y.billed, y.collected, y.cvb_pct, y.on_time_pct, y.paid_pct, y.days, y.fish_kg, y.byp_kg, y.item_amount, y.customers]);
-  return book(`Analysis overview ${ov.months.at(-1).slice(0, 7)}.xlsx`, [
+  return book(`Analysis overview to ${ov.to}.xlsx`, [
     { name: 'By month', title: t, rows, cols: [['Month', 'text', 10], ['Billed', 'money', 15], ['Collected', 'money', 15], ['Collected vs billed %', 'pct', 12],
       ['% paid on time', 'pct', 12], ['% paid so far', 'pct', 12], ['Days to pay', 'int', 10], ['Fish kg', 'num', 12], ['By-products kg', 'num', 14],
       ['Item sales (excl. VAT)', 'money', 16], ['Customers', 'int', 10]] },
-    { name: 'Kg by group', title: t, cols: [['Group', 'text', 24], ['Unit', 'text', 6], ...monthCols(ov.months, 'num'), ['12 months', 'num', 12]],
+    { name: 'Kg by group', title: t, cols: [['Group', 'text', 24], ['Unit', 'text', 6], ...monthCols(ov, 'num'), ['12 months', 'num', 12]],
       rows: ov.groups.map((g) => [g.grp, g.is_kg ? 'kg' : g.uom, ...g.qty, g.total]) },
   ]);
 }
 
 export function downloadCustomers(cg, status) {
-  const t = (m) => [`Customers: ${m.long}, ${windowLabel(cg.months)}`, stamp(status)];
+  const t = (m) => [`Customers: ${m.long}, ${rangeText(cg.from, cg.to)}`, stamp(status)];
   const base = [['Customer No.', 'text', 12], ['Customer', 'text', 34], ['Group', 'text', 9], ['Owner', 'text', 14]];
   const kindOf = (m) => (m.kind === 'pct' ? 'pct' : m.kind === 'days' ? 'int' : m.key === 'kg' ? 'num' : 'money');
   const summary = {
-    name: 'Summary', title: [`Customers, ${windowLabel(cg.months)}`, stamp(status)],
+    name: 'Summary', title: [`Customers, ${modeLabel(cg.mode)}, ${rangeText(cg.from, cg.to)}`, stamp(status)],
     cols: [...base, ['Kg', 'num', 11], ['By-products kg', 'num', 13], ['Other units', 'num', 11], ['Billed', 'money', 15], ['Collected', 'money', 15],
       ['Collected vs billed %', 'pct', 11], ['% paid on time', 'pct', 11], ['% paid so far', 'pct', 11], ['Days to pay', 'int', 10],
       ['Usually pays', 'text', 16], ['Balance now', 'money', 15], ['Last order', 'date', 11]],
     rows: cg.rows.map((r) => [r.customer_no, r.name, r.grp, r.owner, r.total.kg, r.total.byp_kg, r.total.other_qty, r.total.billed, r.total.collected,
       r.total.cvb, r.total.on_time, r.total.paid, r.total.days, payWindowText(payWindow(r.pay_days)), r.balance, r.last_order]),
   };
-  return book(`Analysis customers ${cg.months.at(-1).slice(0, 7)}.xlsx`, [summary, ...METRICS.map((m) => ({
-    name: m.label.replace('%', 'Pct'), title: t(m), cols: [...base, ...monthCols(cg.months, kindOf(m))],
+  return book(`Analysis customers to ${cg.to}.xlsx`, [summary, ...METRICS.map((m) => ({
+    name: m.label.replace('%', 'Pct'), title: t(m), cols: [...base, ...monthCols(cg, kindOf(m))],
     rows: cg.rows.map((r) => [r.customer_no, r.name, r.grp, r.owner, ...r[m.key]]),
   }))]);
 }
 
 export function downloadCustomer(d, status) {
   const c = d.customer; const s = d.series;
-  const t = [`${c.name} (${c.customer_no}), ${windowLabel(d.months)}`, stamp(status)];
-  return book(`Analysis ${c.customer_no} ${d.months.at(-1).slice(0, 7)}.xlsx`, [
+  const t = [`${c.name} (${c.customer_no}), ${rangeText(d.from, d.to)}`, stamp(status)];
+  return book(`Analysis ${c.customer_no} to ${d.to}.xlsx`, [
     { name: 'By month', title: t, cols: [['Month', 'text', 10], ['Kg', 'num', 11], ['By-products kg', 'num', 13], ['Billed', 'money', 15], ['Collected', 'money', 15],
       ['Collected vs billed %', 'pct', 11], ['% paid on time', 'pct', 11], ['% paid so far', 'pct', 11], ['Days to pay', 'int', 10], ['Balance at month end', 'money', 16]],
-      rows: d.months.map((m, i) => [m.slice(0, 7), s.kg[i], s.byp_kg[i], s.billed[i], s.collected[i], s.cvb[i], s.on_time[i], s.paid[i], s.days[i], s.balance[i]]) },
+      rows: periods(d.months, d.from, d.to).map((p, i) => [p.title, s.kg[i], s.byp_kg[i], s.billed[i], s.collected[i], s.cvb[i], s.on_time[i], s.paid[i], s.days[i], s.balance[i]]) },
     { name: 'SKUs', title: t, cols: [['Item', 'text', 11], ['Description', 'text', 40], ['Group', 'text', 16], ['Unit', 'text', 6], ['12 months', 'num', 11],
       ['Sales (excl. VAT)', 'money', 15], ['Price per unit', 'money', 12], ['Vs going rate %', 'pct', 11], ['Free (no price)', 'num', 11], ['Change', 'text', 9],
-      ['Last order', 'date', 11], ...monthCols(d.months, 'num', 9)],
+      ['Last order', 'date', 11], ...monthCols(d, 'num', 9)],
       rows: d.items.map((i) => [i.item_no, i.description, i.grp, i.is_kg ? 'kg' : i.uom, i.total_qty, i.total_amount, i.price_all, i.vs_pct, i.free_qty,
         i.change ?? '', i.last_on, ...i.qty]) },
     { name: 'Open invoices', title: t, cols: [['Invoice', 'text', 12], ['Posted', 'date', 11], ['Due', 'date', 11], ['Open', 'money', 14], ['In the app', 'money', 13],
@@ -181,15 +198,15 @@ export function downloadCustomer(d, status) {
 }
 
 export function downloadSkus(sk, status) {
-  const t = [`SKUs, ${windowLabel(sk.months)}`, stamp(status)];
-  return book(`Analysis SKUs ${sk.months.at(-1).slice(0, 7)}.xlsx`, [
+  const t = [`SKUs, ${rangeText(sk.from, sk.to)}`, stamp(status)];
+  return book(`Analysis SKUs to ${sk.to}.xlsx`, [
     { name: 'Items', title: t, cols: [['Item', 'text', 11], ['Description', 'text', 44], ['Group', 'text', 18], ['Unit', 'text', 6], ['Customers', 'int', 10],
-      ['12 months', 'num', 12], ['Sales (excl. VAT)', 'money', 15], ['Price per unit', 'money', 12], ['Last sale', 'date', 11], ...monthCols(sk.months, 'num', 9)],
+      ['12 months', 'num', 12], ['Sales (excl. VAT)', 'money', 15], ['Price per unit', 'money', 12], ['Last sale', 'date', 11], ...monthCols(sk, 'num', 9)],
       rows: sk.items.map((i) => [i.item_no, i.description, i.grp, i.is_kg ? 'kg' : i.uom, i.customers, i.total_qty, i.total_amount, i.price_all, i.last_on, ...i.qty]) },
-    { name: 'Price per unit', title: t, cols: [['Item', 'text', 11], ['Description', 'text', 44], ...monthCols(sk.months, 'money', 10)],
+    { name: 'Price per unit', title: t, cols: [['Item', 'text', 11], ['Description', 'text', 44], ...monthCols(sk, 'money', 10)],
       rows: sk.items.map((i) => [i.item_no, i.description, ...i.price]) },
     { name: 'Groups', title: t, cols: [['Group', 'text', 24], ['Unit', 'text', 6], ['Customers', 'int', 10], ['12 months', 'num', 12], ['Sales (excl. VAT)', 'money', 15],
-      ...monthCols(sk.months, 'num', 10)], rows: sk.groups.map((g) => [g.grp, g.is_kg ? 'kg' : g.uom, g.customers, g.total_qty, g.total_amount, ...g.qty]) },
+      ...monthCols(sk, 'num', 10)], rows: sk.groups.map((g) => [g.grp, g.is_kg ? 'kg' : g.uom, g.customers, g.total_qty, g.total_amount, ...g.qty]) },
     { name: 'Mix changes', title: t, cols: [['Customer No.', 'text', 12], ['Customer', 'text', 34], ['Stopped buying', 'text', 60], ['Started buying', 'text', 40],
       ['Biggest share change (points)', 'num', 14]],
       rows: sk.mix.map((m) => [m.customer_no, m.name, m.dropped.map((x) => `${x.description} (last ${dmy(x.last_on)})`).join('; '),
@@ -199,14 +216,14 @@ export function downloadSkus(sk, status) {
 
 export function downloadSku(d, status) {
   const it = d.item;
-  const t = [`${it.description} (${it.item_no}), ${windowLabel(d.months)}`, stamp(status)];
-  return book(`Analysis ${it.item_no} ${d.months.at(-1).slice(0, 7)}.xlsx`, [
+  const t = [`${it.description} (${it.item_no}), ${rangeText(d.from, d.to)}`, stamp(status)];
+  return book(`Analysis ${it.item_no} to ${d.to}.xlsx`, [
     { name: 'Customers', title: t, cols: [['Customer No.', 'text', 12], ['Customer', 'text', 34], ['Group', 'text', 9], ['12 months', 'num', 11],
       ['Sales (excl. VAT)', 'money', 15], ['Price per unit', 'money', 12], ['Vs going rate %', 'pct', 11], ['Free (no price)', 'num', 11], ['Months bought', 'int', 9],
-      ['Last order', 'date', 11], ...monthCols(d.months, 'num', 9)],
+      ['Last order', 'date', 11], ...monthCols(d, 'num', 9)],
       rows: d.customers.map((c) => [c.customer_no, c.name, c.grp, c.total_qty, c.total_amount, c.price_all, c.vs_pct, c.free_qty, c.months, c.last_on, ...c.qty]) },
     { name: 'Going rate', title: t, cols: [['Month', 'text', 10], ['Quantity', 'num', 12], ['Sales (excl. VAT)', 'money', 15], ['Going rate per unit', 'money', 14]],
-      rows: d.months.map((m, i) => [m.slice(0, 7), d.by_month.qty[i], d.by_month.amount[i], d.by_month.avg[i]]) },
+      rows: periods(d.months, d.from, d.to).map((p, i) => [p.title, d.by_month.qty[i], d.by_month.amount[i], d.by_month.avg[i]]) },
   ]);
 }
 
@@ -228,15 +245,15 @@ export function downloadForecast(fc, status) {
 export function downloadWatchlists(wl, status) {
   const t = (what) => [what, stamp(status)];
   const base = [['Customer No.', 'text', 12], ['Customer', 'text', 34], ['Group', 'text', 9], ['Owner', 'text', 14]];
-  return book(`Watchlists ${wl.today}.xlsx`, [
-    { name: 'Paying slower', title: t(`Paying ${wl.settings.slower_days}+ days slower: ${mLong(wl.recent_from)} to ${dmy(wl.to)} against ${windowLabel([wl.from, wl.to])}`),
+  return book(`Watchlists ${modeLabel(wl.mode)} to ${wl.to}.xlsx`, [
+    { name: 'Paying slower', title: t(`Paying ${wl.settings.slower_days}+ days slower: ${rangeText(wl.recent_from, wl.to)} against ${rangeText(wl.from, wl.to)}`),
       cols: [...base, ['Days to pay lately', 'num', 12], ['Payments lately', 'int', 10], ['Usual days to pay', 'num', 12], ['Payments in 12 months', 'int', 11], ['Slower by', 'num', 10]],
       rows: wl.slower.map((r) => [r.customer_no, r.name, r.grp, r.owner, r.recent_days, r.recent_n, r.usual_days, r.usual_n, r.slower_by]) },
     { name: 'Buying less', title: t(`Buying ${wl.settings.less_pct}% less, or no order in ${wl.settings.quiet_days} days, to ${dmy(wl.anchor)}`),
       cols: [...base, ['Kg last 30 days', 'num', 12], ['Usual kg per 30 days', 'num', 13], ['Change %', 'pct', 10], ['Last order', 'date', 11], ['Days since', 'int', 9],
         ['Order days before', 'int', 10]],
       rows: wl.less.map((r) => [r.customer_no, r.name, r.grp, r.owner, r.recent_kg, r.usual_kg, r.change_pct, r.last_on, r.days_since, r.days_before]) },
-    { name: 'Sales vs collections', title: t(`Billed at least LKR ${money(wl.settings.gap_min)} more than collected, ${mLong(wl.recent_from)} to ${dmy(wl.to)}`),
+    { name: 'Sales vs collections', title: t(`Billed at least LKR ${money(wl.settings.gap_min)} more than collected, ${rangeText(wl.recent_from, wl.to)}`),
       cols: [...base, ['Billed', 'money', 15], ['Collected', 'money', 15], ['Gap', 'money', 15], ['Balance before', 'money', 15], ['Balance at the end', 'money', 15]],
       rows: wl.gap.map((r) => [r.customer_no, r.name, r.grp, r.owner, r.billed, r.collected, r.gap, r.bal_before, r.bal_now]) },
   ]);

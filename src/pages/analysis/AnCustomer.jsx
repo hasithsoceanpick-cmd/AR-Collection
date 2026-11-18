@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { rpc } from '../../lib/supabase';
-import { compact, dmy, downloadCustomer, groupColor, groupOrder, kg, money, mShort, num0, num1, PALETTE, pct, payWindow, payWindowText, qtyOf, windowLabel } from '../../lib/analysis';
+import { compact, dmy, downloadCustomer, groupColor, groupOrder, kg, money, num0, num1, PALETTE, pct, payWindow, payWindowText, periods, qtyOf } from '../../lib/analysis';
 import { payMethodLabel } from '../../lib/followup';
 import { Columns, DayBars, Lines, Spark } from '../../components/Charts';
-import { AnPage, Loading, Tile, useAnStatus, useEndMonth, WatchPills, WindowPicker, withTo } from './AnCommon';
+import { AnPage, Loading, ModeNote, Tile, useAnMode, useAnStatus, WatchPills } from './AnCommon';
 
 const BASIS = { promise: 'their promise', habit: 'how they usually pay', 'due date': 'the due date' };
 const vs = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${num1(v)}%`);
@@ -13,18 +13,19 @@ const vs = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${num1(v)}%`);
 export default function AnCustomer() {
   const { no } = useParams();
   const { status } = useAnStatus();
-  const [end, setEnd] = useEndMonth();
+  const [mode] = useAnMode();
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let live = true;
     setError(''); setD(null);
-    rpc('cc_an_customer', { p_customer: no, p_end: end }).then((x) => { if (live) setD(x); }).catch((e) => { if (live) setError(e.message); });
+    rpc('cc_an_customer', { p_customer: no, p_mode: mode }).then((x) => { if (live) setD(x); }).catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
-  }, [no, end]);
+  }, [no, mode]);
 
   if (!d) return <AnPage title="Customer"><Loading error={error} /></AnPage>;
-  const c = d.customer; const s = d.series; const labels = d.months.map(mShort);
+  const c = d.customer; const s = d.series; const per = periods(d.months, d.from, d.to);
+  const labels = per.map((x) => x.label); const titles = per.map((x) => x.title);
   const pw = payWindow(d.pay_days.n);
   const kgGroups = d.groups.filter((g) => g.is_kg).sort(groupOrder);
   const unitGroups = d.groups.filter((g) => !g.is_kg);
@@ -35,12 +36,12 @@ export default function AnCustomer() {
   return (
     <AnPage title={c.name}
       lede={<>{c.customer_no}{c.grp ? ` · ${c.grp}` : ''} · {c.owner ?? 'No owner'} · Terms {c.terms ?? (c.bc_terms ? `${c.bc_terms} (BC)` : 'not set')}
-        {c.pay_method ? ` · Pays by ${payMethodLabel(c.pay_method)}` : ''} · {windowLabel(d.months)}</>}
+        {c.pay_method ? ` · Pays by ${payMethodLabel(c.pay_method)}` : ''}</>}
       actions={<>
-        <WindowPicker status={status} end={end} onChange={setEnd} />
         <button type="button" className="btn" onClick={() => downloadCustomer(d, status)}>Download Excel</button>
       </>}>
-      <p className="an-crumbs small"><Link to={withTo('/analysis/customers', end)}>All customers</Link> · <Link to={`/customer/${encodeURIComponent(c.customer_no)}`}>Collections customer page</Link>
+      <ModeNote data={d} />
+      <p className="an-crumbs small"><Link to={'/analysis/customers'}>All customers</Link> · <Link to={`/customer/${encodeURIComponent(c.customer_no)}`}>Collections customer page</Link>
         {' '}<WatchPills watch={d.watch} /></p>
       <div className="an-tiles">
         <Tile label="Billed" value={`LKR ${compact(d.total.billed)}`} spark={s.billed} />
@@ -52,19 +53,19 @@ export default function AnCustomer() {
         <Tile label="Balance now" value={`LKR ${money(c.balance)}`} />
       </div>
       <div className="an-grid2">
-        <Columns title="Billed and collected by month (LKR)" labels={labels} fmt={money}
+        <Columns title="Billed and collected by month (LKR)" labels={labels} titles={titles} fmt={money}
           series={[{ name: 'Billed', color: PALETTE[0], values: s.billed }, { name: 'Collected', color: PALETTE[1], values: s.collected }]} />
-        <Lines title="How invoices were paid (%)" labels={labels} fmt={pct} yFmt={(v) => `${v}%`} yMax={100}
+        <Lines title="How invoices were paid (%)" labels={labels} titles={titles} fmt={pct} yFmt={(v) => `${v}%`} yMax={100}
           series={[{ name: '% paid on time', color: PALETTE[0], values: s.on_time }, { name: '% paid so far', color: PALETTE[1], values: s.paid },
             { name: 'Collected vs billed', color: PALETTE[2], values: s.cvb }]} />
-        {kgGroups.length > 0 && <Columns stack title="Kg by group" labels={labels} fmt={(v) => kg(v)}
+        {kgGroups.length > 0 && <Columns stack title="Kg by group" labels={labels} titles={titles} fmt={(v) => kg(v)}
           series={kgGroups.map((g) => ({ name: g.grp, color: groupColor(g.grp), values: g.qty }))} />}
-        {unitGroups.map((g) => <Columns key={g.grp} title={g.grp} labels={labels} fmt={(v) => num1(v)} series={[{ name: g.grp, color: groupColor(g.grp), values: g.qty }]} />)}
-        <Lines title="Days to pay, by the month paid" labels={labels} fmt={(v) => (v == null ? '—' : `${num0(v)} days`)} yFmt={num0}
+        {unitGroups.map((g) => <Columns key={g.grp} title={g.grp} labels={labels} titles={titles} fmt={(v) => num1(v)} series={[{ name: g.grp, color: groupColor(g.grp), values: g.qty }]} />)}
+        <Lines title="Days to pay, by the month paid" labels={labels} titles={titles} fmt={(v) => (v == null ? '—' : `${num0(v)} days`)} yFmt={num0}
           series={[{ name: 'Days to pay', color: PALETTE[0], values: s.days }]} />
         <DayBars title={`Days of the month receipts came in${pw ? ` (usually ${payWindowText(pw)})` : ''}`} counts={d.pay_days.n} amounts={d.pay_days.amount}
           fmtAmount={(v) => `LKR ${money(v)}`} highlight={pw} />
-        <Lines title="Balance at each month end (LKR)" labels={labels} fmt={money} series={[{ name: 'Balance', color: PALETTE[0], values: s.balance }]} />
+        <Lines title="Balance at each month end (LKR)" labels={labels} titles={titles} fmt={money} series={[{ name: 'Balance', color: PALETTE[0], values: s.balance }]} />
       </div>
 
       <h2>SKUs</h2>
@@ -72,11 +73,11 @@ export default function AnCustomer() {
         <>
           {(dropped.length > 0 || added.length > 0 || kgGroups.length > 1) && (
             <div className="an-mix">
-              {dropped.length > 0 && <p><strong>Stopped buying</strong> (bought in 3 or more of the first 9 months, none since {mShort(d.recent_from)}):{' '}
+              {dropped.length > 0 && <p><strong>Stopped buying</strong> (bought in 3 or more months before {dmy(d.recent_from)}, none since):{' '}
                 {dropped.map((i) => `${i.description} (last ${dmy(i.last_on)})`).join('; ')}</p>}
-              {added.length > 0 && <p><strong>Started buying</strong> since {mShort(d.recent_from)}: {added.map((i) => i.description).join('; ')}</p>}
+              {added.length > 0 && <p><strong>Started buying</strong> since {dmy(d.recent_from)}: {added.map((i) => i.description).join('; ')}</p>}
               {tb > 0 && tn > 0 && kgGroups.length > 1 && (
-                <p className="small">Share of kg, first 9 months → last 3: {kgGroups.map((g) => `${g.grp} ${Math.round((100 * g.before) / tb)}% → ${Math.round((100 * g.now) / tn)}%`).join(' · ')}</p>
+                <p className="small">Share of kg, before {dmy(d.recent_from)} → since: {kgGroups.map((g) => `${g.grp} ${Math.round((100 * g.before) / tb)}% → ${Math.round((100 * g.now) / tn)}%`).join(' · ')}</p>
               )}
             </div>
           )}
@@ -89,7 +90,7 @@ export default function AnCustomer() {
               <tbody>
                 {d.items.map((i) => (
                   <tr key={i.item_no}>
-                    <td><Link to={withTo(`/analysis/sku/${encodeURIComponent(i.item_no)}`, end)}>{i.description}</Link>
+                    <td><Link to={`/analysis/sku/${encodeURIComponent(i.item_no)}`}>{i.description}</Link>
                       <span className="muted small"> {i.item_no}</span>
                       {i.change && <span className={`pill ${i.change === 'dropped' ? 'warn' : 'muted'}`}>{i.change === 'dropped' ? 'Stopped' : 'New'}</span>}
                       {Number(i.free_qty) > 0 && <span className="muted small"> · {qtyOf(i.free_qty, i.is_kg ? 'KG' : i.uom)} free</span>}</td>

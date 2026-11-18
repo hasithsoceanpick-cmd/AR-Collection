@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { rpc } from '../../lib/supabase';
-import { dmy, downloadSku, groupColor, money, mShort, num0, num1, PALETTE, qtyOf, windowLabel } from '../../lib/analysis';
+import { dmy, downloadSku, groupColor, money, num0, num1, PALETTE, periods, qtyOf } from '../../lib/analysis';
 import { Columns, Lines, Spark } from '../../components/Charts';
-import { AnPage, Loading, useAnStatus, useEndMonth, WindowPicker, withTo } from './AnCommon';
+import { AnPage, Loading, ModeNote, useAnMode, useAnStatus } from './AnCommon';
 
 const vs = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${num1(v)}%`);
 
@@ -11,31 +11,32 @@ const vs = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${num1(v)}%`);
 export default function AnSku() {
   const { item } = useParams();
   const { status } = useAnStatus();
-  const [end, setEnd] = useEndMonth();
+  const [mode] = useAnMode();
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [sort, setSort] = useState('qty');
   useEffect(() => {
     let live = true;
     setError(''); setD(null);
-    rpc('cc_an_sku', { p_item: item, p_end: end }).then((x) => { if (live) setD(x); }).catch((e) => { if (live) setError(e.message); });
+    rpc('cc_an_sku', { p_item: item, p_mode: mode }).then((x) => { if (live) setD(x); }).catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
-  }, [item, end]);
+  }, [item, mode]);
   if (!d) return <AnPage title="SKU"><Loading error={error} /></AnPage>;
-  const it = d.item; const unit = it.is_kg ? 'kg' : it.uom; const labels = d.months.map(mShort);
+  const it = d.item; const unit = it.is_kg ? 'kg' : it.uom; const per = periods(d.months, d.from, d.to);
+  const labels = per.map((x) => x.label); const titles = per.map((x) => x.title);
   const rows = [...d.customers].sort(sort === 'price' ? (a, b) => (a.vs_pct ?? 999) - (b.vs_pct ?? 999) : (a, b) => b.total_qty - a.total_qty);
   return (
-    <AnPage title={it.description} lede={<>{it.item_no} · <span className="key-rect" style={{ background: groupColor(it.grp) }} /> {it.grp} · {windowLabel(d.months)}</>}
+    <AnPage title={it.description} lede={<>{it.item_no} · <span className="key-rect" style={{ background: groupColor(it.grp) }} /> {it.grp}</>}
       actions={<>
-        <WindowPicker status={status} end={end} onChange={setEnd} />
         <button type="button" className="btn" onClick={() => downloadSku(d, status)}>Download Excel</button>
       </>}>
-      <p className="an-crumbs small"><Link to={withTo('/analysis/skus', end)}>All SKUs</Link></p>
+      <ModeNote data={d} />
+      <p className="an-crumbs small"><Link to={'/analysis/skus'}>All SKUs</Link></p>
       <div className="an-grid2">
-        <Lines title={`Going rate per ${unit} (LKR, excl. VAT)`} labels={labels} fmt={money} yFmt={num0}
+        <Lines title={`Going rate per ${unit} (LKR, excl. VAT)`} labels={labels} titles={titles} fmt={money} yFmt={num0}
           series={[{ name: 'Going rate', color: groupColor(it.grp), values: d.by_month.avg }]}
           note={`All local customers' sales amount ÷ ${unit} on priced sale lines. 12 months: LKR ${money(d.price_all)} per ${unit}.`} />
-        <Columns title={`Sold by month (${unit})`} labels={labels} fmt={(v) => qtyOf(v, it.is_kg ? 'KG' : it.uom)}
+        <Columns title={`Sold by month (${unit})`} labels={labels} titles={titles} fmt={(v) => qtyOf(v, it.is_kg ? 'KG' : it.uom)}
           series={[{ name: 'Sold', color: PALETTE[0], values: d.by_month.qty }]} />
       </div>
       <h2>Customers</h2>
@@ -51,7 +52,7 @@ export default function AnSku() {
             <th scope="col" className="num">Price per {unit}</th><th scope="col" className="num">Vs going rate</th><th scope="col" className="num">Free</th><th scope="col">Last order</th></tr></thead>
           <tbody>{rows.map((c) => (
             <tr key={c.customer_no}>
-              <td><Link to={withTo(`/analysis/customer/${encodeURIComponent(c.customer_no)}`, end)}>{c.name}</Link><span className="muted small"> {c.customer_no}{c.grp ? ` · ${c.grp}` : ''}</span></td>
+              <td><Link to={`/analysis/customer/${encodeURIComponent(c.customer_no)}`}>{c.name}</Link><span className="muted small"> {c.customer_no}{c.grp ? ` · ${c.grp}` : ''}</span></td>
               <td className="num">{qtyOf(c.total_qty, it.is_kg ? 'KG' : it.uom)}</td>
               <td><Spark values={c.qty} color={groupColor(it.grp)} /></td>
               <td className="num">{c.months}</td>

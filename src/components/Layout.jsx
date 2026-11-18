@@ -70,9 +70,9 @@ function ViewAs() {
 
 // The Analysis workspace's menu (finance and management).
 const ANALYSIS = [
-  { to: '/analysis', label: 'Overview', short: 'Overview', icon: 'chart', end: true, win: true },
-  { to: '/analysis/customers', label: 'Customers', short: 'Customers', icon: 'people', also: ['/analysis/customer/'], win: true },
-  { to: '/analysis/skus', label: 'SKUs', short: 'SKUs', icon: 'box', also: ['/analysis/sku/'], win: true },
+  { to: '/analysis', label: 'Overview', short: 'Overview', icon: 'chart', end: true },
+  { to: '/analysis/customers', label: 'Customers', short: 'Customers', icon: 'people', also: ['/analysis/customer/'] },
+  { to: '/analysis/skus', label: 'SKUs', short: 'SKUs', icon: 'box', also: ['/analysis/sku/'] },
   { to: '/analysis/forecast', label: 'Cash forecast', short: 'Cash', icon: 'bank' },
   { to: '/analysis/watchlists', label: 'Watchlists', short: 'Watch', icon: 'today' },
   { to: '/analysis/uploads', label: 'Uploads', short: 'Uploads', icon: 'upload' },
@@ -193,9 +193,8 @@ export default function Layout() {
       <nav className="sidenav" aria-label={inAnalysis ? 'Analysis' : 'Main'}>
         {inAnalysis ? ANALYSIS.map((l) => {
           const on = anOn(l, loc.pathname);
-          const win = new URLSearchParams(loc.search).get('to'); // the chosen 12 months go with you between pages
           return (
-            <Link key={l.to} to={l.win && win ? `${l.to}?to=${win}` : l.to} className={`${on ? 'active ' : ''}nav-main nav-sec`} aria-current={on ? 'page' : undefined}>
+            <Link key={l.to} to={l.to} className={`${on ? 'active ' : ''}nav-main nav-sec`} aria-current={on ? 'page' : undefined}>
               <Icon name={l.icon} /><span className="nav-label"><span className="nav-long">{l.label}</span><span className="nav-short">{l.short}</span></span>
             </Link>
           );

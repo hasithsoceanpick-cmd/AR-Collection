@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { rpc } from '../../lib/supabase';
-import { compact, dmy, downloadSkus, groupColor, groupOrder, kg, money, mShort, num0, num1, qtyOf, windowLabel } from '../../lib/analysis';
+import { compact, dmy, downloadSkus, groupColor, groupOrder, kg, money, num0, num1, periods, qtyOf } from '../../lib/analysis';
 import { Columns, Spark } from '../../components/Charts';
-import { AnPage, DataNote, Loading, useAnStatus, useEndMonth, WindowPicker, withTo } from './AnCommon';
+import { AnPage, DataNote, Loading, ModeNote, useAnMode, useAnStatus } from './AnCommon';
 
 // Finance moves an item to another group (or a new one); an empty choice goes back to the group worked out from its description.
 function GroupEdit({ item, names, onDone }) {
@@ -33,15 +33,15 @@ function GroupEdit({ item, names, onDone }) {
 // Analysis → SKUs: kg by group and item, price per kg, and customers whose mix changed.
 export default function AnSkus() {
   const { status } = useAnStatus();
-  const [end, setEnd] = useEndMonth();
+  const [mode] = useAnMode();
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
   const [grp, setGrp] = useState('');
   const [editing, setEditing] = useState(null);
   const load = useCallback(async () => {
-    try { setD(await rpc('cc_an_skus', { p_end: end })); setError(''); } catch (e) { setError(e.message); }
-  }, [end]);
+    try { setD(await rpc('cc_an_skus', { p_mode: mode })); setError(''); } catch (e) { setError(e.message); }
+  }, [mode]);
   useEffect(() => { setD(null); load(); }, [load]);
 
   const items = useMemo(() => {
@@ -50,15 +50,16 @@ export default function AnSkus() {
       .sort((a, b) => Number(b.total_amount) - Number(a.total_amount));
   }, [d, q, grp]);
   const [all, setAll] = useState(false);
-  const labels = d?.months.map(mShort) ?? [];
+  const per = d ? periods(d.months, d.from, d.to) : [];
+  const labels = per.map((x) => x.label); const titles = per.map((x) => x.title);
   const kgGroups = (d?.groups ?? []).filter((g) => g.is_kg);
   const fish = kgGroups.filter((g) => g.grp !== 'By-products').sort(groupOrder);
   return (
-    <AnPage title="SKUs" lede={d ? `What local customers bought, ${windowLabel(d.months)}. Groups are worked out from each item's description${d.can.change ? '; change one with Change group' : ''}.` : 'What local customers bought.'}
+    <AnPage title="SKUs" lede={d ? `What local customers bought. Groups are worked out from each item's description${d.can.change ? '; change one with Change group' : ''}.` : 'What local customers bought.'}
       actions={<>
-        <WindowPicker status={status} end={end} onChange={setEnd} />
         <button type="button" className="btn" disabled={!d} onClick={() => downloadSkus(d, status)}>Download Excel</button>
       </>}>
+      <ModeNote data={d} />
       <DataNote status={status} />
       {!d ? <Loading error={error} /> : (
         <>
@@ -76,10 +77,10 @@ export default function AnSkus() {
             </table>
           </div>
           <div className="an-grid2">
-            {fish.length > 0 && <Columns stack title="Fish products by group (kg)" labels={labels} fmt={(v) => kg(v)}
+            {fish.length > 0 && <Columns stack title="Fish products by group (kg)" labels={labels} titles={titles} fmt={(v) => kg(v)}
               series={fish.map((g) => ({ name: g.grp, color: groupColor(g.grp), values: g.qty }))} />}
             {kgGroups.filter((g) => g.grp === 'By-products').map((g) => (
-              <Columns key={g.grp} title="By-products (kg)" labels={labels} fmt={(v) => kg(v)} series={[{ name: g.grp, color: groupColor(g.grp), values: g.qty }]} />
+              <Columns key={g.grp} title="By-products (kg)" labels={labels} titles={titles} fmt={(v) => kg(v)} series={[{ name: g.grp, color: groupColor(g.grp), values: g.qty }]} />
             ))}
           </div>
 
@@ -97,7 +98,7 @@ export default function AnSkus() {
                 <th scope="col" className="num">Sales (excl. VAT), largest first</th><th scope="col" className="num">Price per kg</th><th scope="col">Price by month</th><th scope="col">Last sale</th></tr></thead>
               <tbody>{(all ? items : items.slice(0, 30)).map((i) => (
                 <tr key={i.item_no}>
-                  <td><Link to={withTo(`/analysis/sku/${encodeURIComponent(i.item_no)}`, end)}>{i.description}</Link><span className="muted small"> {i.item_no}</span></td>
+                  <td><Link to={`/analysis/sku/${encodeURIComponent(i.item_no)}`}>{i.description}</Link><span className="muted small"> {i.item_no}</span></td>
                   <td>{editing === i.item_no
                     ? <GroupEdit item={i} names={d.group_names} onDone={async (saved = true) => { setEditing(null); if (saved !== false) await load(); }} />
                     : <><span className="key-rect" style={{ background: groupColor(i.grp) }} /> {i.grp}{i.grp_set && <span className="muted small"> (set by finance)</span>}
@@ -116,14 +117,14 @@ export default function AnSkus() {
 
           {items.length > 30 && !all && <button type="button" className="btn" onClick={() => setAll(true)}>Show all {items.length} items</button>}
           <h2>Customers whose mix changed</h2>
-          <p className="muted small">Items bought in 3 or more of the first 9 months and none since {mShort(d.recent_from)}, or a group's share of the customer's kg moving 20 points or more.</p>
+          <p className="muted small">Items bought in 3 or more months before {dmy(d.recent_from)} and none since, or a group's share of the customer's kg moving 20 points or more.</p>
           {d.mix.length === 0 ? <p className="muted">No changes.</p> : (
             <div className="table-wrap">
               <table className="table an-mixtable">
-                <thead><tr><th scope="col">Customer</th><th scope="col">Stopped buying</th><th scope="col">Started buying</th><th scope="col">Share of kg, first 9 months → last 3</th></tr></thead>
+                <thead><tr><th scope="col">Customer</th><th scope="col">Stopped buying</th><th scope="col">Started buying</th><th scope="col">Share of kg, before {dmy(d.recent_from)} → since</th></tr></thead>
                 <tbody>{d.mix.map((m) => (
                   <tr key={m.customer_no}>
-                    <td><Link to={withTo(`/analysis/customer/${encodeURIComponent(m.customer_no)}`, end)}>{m.name}</Link><span className="muted small"> {m.customer_no}</span></td>
+                    <td><Link to={`/analysis/customer/${encodeURIComponent(m.customer_no)}`}>{m.name}</Link><span className="muted small"> {m.customer_no}</span></td>
                     <td>{m.dropped.length ? m.dropped.map((x) => <div key={x.item_no}>{x.description} <span className="muted small">({num1(x.qty_before)} kg, last {dmy(x.last_on)})</span></div>) : <span className="muted">—</span>}</td>
                     <td>{m.added.length ? m.added.map((x) => <div key={x.item_no}>{x.description}</div>) : <span className="muted">—</span>}</td>
                     <td>{m.shift ? m.shift.filter((g) => g.before || g.now).map((g) => <div key={g.grp}>{g.grp} {Math.round(g.before)}% → {Math.round(g.now)}%</div>) : <span className="muted">—</span>}</td>

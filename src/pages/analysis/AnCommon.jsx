@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { IS_DEMO, openAnalysis, rpc } from '../../lib/supabase';
-import { dmy, mLong } from '../../lib/analysis';
+import { dmy, MODES, modeLabel, rangeText } from '../../lib/analysis';
 import { Spark } from '../../components/Charts';
 
 // What has been uploaded, the settings and the windows that can be chosen. Loaded once and kept for a minute.
@@ -17,27 +17,35 @@ export function useAnStatus() {
   return { status, error, reload: () => load(true) };
 }
 
-// The window's last month, kept in the address (?to=2026-10) so a link opens the same view.
-export function useEndMonth() {
-  const [sp, setSp] = useSearchParams();
-  const to = sp.get('to');
-  const end = to && /^\d{4}-\d{2}$/.test(to) ? `${to}-01` : null;
-  const set = (iso) => { const n = new URLSearchParams(sp); if (iso) n.set('to', iso.slice(0, 7)); else n.delete('to'); setSp(n, { replace: true }); };
-  return [end, set];
+// Which 12 months: to date (the default) or to the last complete month. Chosen on the Overview and remembered in this
+// browser, so every Analysis page uses the same one.
+const MODE_KEY = 'cc-an-mode';
+const readMode = () => { try { return localStorage.getItem(MODE_KEY) === 'month' ? 'month' : 'todate'; } catch { return 'todate'; } };
+export function useAnMode() {
+  const [mode, setMode] = useState(readMode);
+  const set = (m) => { try { localStorage.setItem(MODE_KEY, m); } catch { /* the choice just isn't remembered */ } setMode(m); };
+  return [mode, set];
 }
-export const withTo = (path, end) => (end ? `${path}${path.includes('?') ? '&' : '?'}to=${end.slice(0, 7)}` : path);
 
-export function WindowPicker({ status, end, onChange }) {
-  const list = status?.end_months ?? [];
-  const value = end ?? status?.default_end ?? '';
-  if (!list.length) return null;
+export function ModePicker({ mode, onChange, status }) {
   return (
-    <label className="field inline an-window">
-      <span className="flabel">12 months to</span>
-      <select value={value} onChange={(e) => onChange(e.target.value === status.default_end ? null : e.target.value)} aria-label="12 months to">
-        {list.map((m) => <option key={m} value={m}>{mLong(m)}{m === status.default_end ? ' (last full month)' : ''}</option>)}
-      </select>
-    </label>
+    <div className="an-mode">
+      <div className="tabs" role="tablist" aria-label="Which 12 months">
+        {MODES.map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={mode === k} className={`tab${mode === k ? ' on' : ''}`} onClick={() => onChange(k)}>
+            {l}{status?.windows?.[k] && <span className="an-mode-dates">{rangeText(status.windows[k].from, status.windows[k].to)}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// On the other pages: which 12 months are shown, and where to change it.
+export function ModeNote({ data }) {
+  if (!data?.from) return null;
+  return (
+    <p className="an-modenote small"><strong>{modeLabel(data.mode)}</strong>: {rangeText(data.from, data.to)} · <Link to="/analysis">Change on the Overview</Link></p>
   );
 }
 

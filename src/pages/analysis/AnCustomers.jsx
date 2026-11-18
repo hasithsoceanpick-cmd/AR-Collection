@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { rpc } from '../../lib/supabase';
-import { changeClass, changeWords, compact, downloadCustomers, METRICS, metricOf, money, mShort, num1, payWindow, payWindowText, windowLabel } from '../../lib/analysis';
-import { AnPage, DataNote, Loading, useAnStatus, useEndMonth, WindowPicker, withTo } from './AnCommon';
+import { changeClass, changeWords, compact, downloadCustomers, METRICS, metricOf, money, num1, payWindow, payWindowText, periods } from '../../lib/analysis';
+import { AnPage, DataNote, Loading, ModeNote, useAnMode, useAnStatus } from './AnCommon';
 
 const STEP = 100;
 const cellText = (m, v) => {
@@ -12,23 +12,11 @@ const cellText = (m, v) => {
   if (m.key === 'kg') return Number(v) === 0 ? '' : num1(v);
   return Number(v) === 0 ? '' : compact(v);
 };
-// recent 3 months against the 9 before, for sorting by change
-function change(list, kind) {
-  const a = list.slice(0, 9); const b = list.slice(9);
-  if (kind === 'amount') {
-    const pa = a.reduce((s, v) => s + (Number(v) || 0), 0) / 9; const pb = b.reduce((s, v) => s + (Number(v) || 0), 0) / 3;
-    return pa > 0 ? pb / pa - 1 : null;
-  }
-  const av = (l) => { const x = l.filter((v) => v != null).map(Number); return x.length ? x.reduce((s, v) => s + v, 0) / x.length : null; };
-  const ra = av(a); const rb = av(b);
-  if (ra == null || rb == null) return null;
-  return kind === 'days' ? ra - rb : rb - ra; // higher = better
-}
 
 // Analysis → Customers: every customer × 12 months, one measure at a time, coloured against the customer's own average.
 export default function AnCustomers() {
   const { status } = useAnStatus();
-  const [end, setEnd] = useEndMonth();
+  const [mode] = useAnMode();
   const [sp, setSp] = useSearchParams();
   const nav = useNavigate();
   const [data, setData] = useState(null);
@@ -43,9 +31,9 @@ export default function AnCustomers() {
   useEffect(() => {
     let live = true;
     setError('');
-    rpc('cc_an_customers', { p_end: end }).then((d) => { if (live) setData(d); }).catch((e) => { if (live) setError(e.message); });
+    rpc('cc_an_customers', { p_mode: mode }).then((d) => { if (live) setData(d); }).catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
-  }, [end]);
+  }, [mode]);
 
   const groups = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.grp ?? ''))].sort(), [data]);
   const rows = useMemo(() => {
@@ -54,13 +42,15 @@ export default function AnCustomers() {
     const total = (r) => (metric.kind === 'amount' ? Number(r.total[metric.key]) || 0 : r.total[metric.key]);
     const by = {
       size: (a, b) => (metric.kind === 'amount' ? total(b) - total(a) : (Number(b.total.billed) || 0) - (Number(a.total.billed) || 0)),
-      drop: (a, b) => (change(a[metric.key], metric.kind) ?? 99) - (change(b[metric.key], metric.kind) ?? 99),
-      rise: (a, b) => (change(b[metric.key], metric.kind) ?? -99) - (change(a[metric.key], metric.kind) ?? -99),
+      // the last 3 months against the 9 before (from the database; higher = better)
+      drop: (a, b) => (a.change?.[metric.key] ?? 1e9) - (b.change?.[metric.key] ?? 1e9),
+      rise: (a, b) => (b.change?.[metric.key] ?? -1e9) - (a.change?.[metric.key] ?? -1e9),
       name: (a, b) => a.name.localeCompare(b.name),
     }[sort] ?? (() => 0);
     return [...list].sort(by);
   }, [data, q, grp, sort, metric]);
-  useEffect(() => { setShown(STEP); }, [q, grp, sort, metric.key, end]);
+  useEffect(() => { setShown(STEP); }, [q, grp, sort, metric.key, mode]);
+  const per = data ? periods(data.months, data.from, data.to) : [];
 
   const totalCell = (r) => {
     const v = r.total[metric.key];
@@ -68,11 +58,11 @@ export default function AnCustomers() {
     return cellText(metric, v);
   };
   return (
-    <AnPage title="Customers" lede={data ? `${metric.long}, ${windowLabel(data.months)}. Each month is coloured against the customer's own 12-month average.` : 'Every customer, month by month.'}
+    <AnPage title="Customers" lede={`${metric.long}. Each month is coloured against the customer's own 12-month average.`}
       actions={<>
-        <WindowPicker status={status} end={end} onChange={setEnd} />
         <button type="button" className="btn" disabled={!data} onClick={() => downloadCustomers(data, status)}>Download Excel</button>
       </>}>
+      <ModeNote data={data} />
       <DataNote status={status} />
       <div className="filters an-filters">
         <input className="search" type="search" placeholder="Search customer name or number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" />
@@ -88,8 +78,8 @@ export default function AnCustomers() {
         <label className="field inline"><span className="flabel">Sort</span>
           <select value={sort} onChange={(e) => setParam('sort', e.target.value, 'size')} aria-label="Sort">
             <option value="size">{metric.kind === 'amount' ? `${metric.label}, largest first` : 'Billed, largest first'}</option>
-            <option value="drop">Biggest drop, last 3 months</option>
-            <option value="rise">Biggest rise, last 3 months</option>
+            <option value="drop">Biggest drop, last 3 months vs the 9 before</option>
+            <option value="rise">Biggest rise, last 3 months vs the 9 before</option>
             <option value="name">Name</option>
           </select></label>
       </div>
@@ -110,7 +100,7 @@ export default function AnCustomers() {
               <thead>
                 <tr>
                   <th scope="col" className="an-sticky">Customer</th>
-                  {data.months.map((m) => <th key={m} scope="col" className="num">{mShort(m)}</th>)}
+                  {per.map((x) => <th key={x.m} scope="col" className="num">{x.label}{x.partial && <span className="an-part">{x.part}</span>}</th>)}
                   <th scope="col" className="num">{metric.kind === 'amount' ? '12 months' : 'Overall'}</th>
                   <th scope="col">Usually pays</th>
                   <th scope="col" className="num">Balance now</th>
@@ -121,14 +111,14 @@ export default function AnCustomers() {
                   const list = r[metric.key];
                   const pw = payWindow(r.pay_days);
                   return (
-                    <tr key={r.customer_no} className="click" onClick={(e) => { if (!e.target.closest('a')) nav(withTo(`/analysis/customer/${encodeURIComponent(r.customer_no)}`, end)); }}>
+                    <tr key={r.customer_no} className="click" onClick={(e) => { if (!e.target.closest('a')) nav(`/analysis/customer/${encodeURIComponent(r.customer_no)}`); }}>
                       <th scope="row" className="an-sticky">
-                        <Link to={withTo(`/analysis/customer/${encodeURIComponent(r.customer_no)}`, end)}>{r.name}</Link>
+                        <Link to={`/analysis/customer/${encodeURIComponent(r.customer_no)}`}>{r.name}</Link>
                         <span className="muted small"> {r.customer_no}{r.grp ? ` · ${r.grp}` : ''}</span>
                       </th>
                       {list.map((v, i) => {
-                        const cls = changeClass(v, list, metric.kind);
-                        return <td key={data.months[i]} className={`num an-c ${cls}`} title={`${mShort(data.months[i])}: ${metric.fmt(v)}${cls ? `, ${changeWords(cls, metric.kind)}` : ''}`}>{cellText(metric, v)}</td>;
+                        const cls = per[i].partial ? '' : changeClass(v, list, metric.kind); // part months aren't coloured
+                        return <td key={per[i].m} className={`num an-c ${cls}${per[i].partial ? ' an-partcell' : ''}`} title={`${per[i].title}: ${metric.fmt(v)}${cls ? `, ${changeWords(cls, metric.kind)}` : ''}`}>{cellText(metric, v)}</td>;
                       })}
                       <td className="num an-total">{totalCell(r)}</td>
                       <td className="an-paywin">{pw ? payWindowText(pw) : <span className="muted small">—</span>}</td>

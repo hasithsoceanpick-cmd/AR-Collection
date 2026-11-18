@@ -93,7 +93,8 @@ function TableView({ labels, series, fmt, caption }) {
 const PAD = { l: 52, r: 12, t: 10, b: 26 };
 
 // Columns side by side for each label (one or two series), or stacked (stack = true).
-export function Columns({ title, labels, series, fmt, yFmt = compact, height = 220, stack = false, table = true, note }) {
+export function Columns({ title, labels, titles, series, fmt, yFmt = compact, height = 220, stack = false, table = true, note }) {
+  const names = titles ?? labels;
   const box = useRef(null);
   const W = useWidth(box);
   const [tip, setTip] = useState(null);
@@ -115,7 +116,7 @@ export function Columns({ title, labels, series, fmt, yFmt = compact, height = 2
   const show = (i, el) => {
     const rect = el.getBoundingClientRect(); const host = box.current.getBoundingClientRect();
     const x = rect.left - host.left + rect.width / 2;
-    setTip({ x, y: 4, flip: x > host.width * 0.6, title: labels[i], rows: series.map((s) => ({ name: s.name, color: s.color, value: fmt(s.values[i]) })) });
+    setTip({ x, y: 4, flip: x > host.width * 0.6, title: names[i], rows: series.map((s) => ({ name: s.name, color: s.color, value: fmt(s.values[i]) })) });
   };
   const every = n > 8 && W < 520 ? 3 : n > 8 && W < 760 ? 2 : 1;
   return (
@@ -150,7 +151,7 @@ export function Columns({ title, labels, series, fmt, yFmt = compact, height = 2
                 })}
                 {i % every === 0 && <text x={PAD.l + band * i + band / 2} y={H - 8} textAnchor="middle" className="chart-axis">{l}</text>}
                 <rect className="chart-hit" x={PAD.l + band * i} y={PAD.t} width={band} height={plotH} fill="transparent" tabIndex={0}
-                  aria-label={`${l}: ${series.map((s) => `${s.name} ${fmt(s.values[i])}`).join(', ')}`}
+                  aria-label={`${names[i]}: ${series.map((s) => `${s.name} ${fmt(s.values[i])}`).join(', ')}`}
                   onMouseEnter={(e) => show(i, e.currentTarget)} onFocus={(e) => show(i, e.currentTarget)} onBlur={() => setTip(null)} />
               </g>
             );
@@ -159,13 +160,14 @@ export function Columns({ title, labels, series, fmt, yFmt = compact, height = 2
         <Tip tip={tip} />
       </div>
       {note && <p className="muted small chart-note">{note}</p>}
-      {table && <TableView labels={labels} series={series} fmt={fmt} caption={title} />}
+      {table && <TableView labels={names} series={series} fmt={fmt} caption={title} />}
     </figure>
   );
 }
 
 // Lines on one axis (gaps where a month has no value), with a crosshair that snaps to the nearest month.
-export function Lines({ title, labels, series, fmt, yFmt, height = 220, yMax = null, table = true, note }) {
+export function Lines({ title, labels, titles, series, fmt, yFmt, height = 220, yMax = null, table = true, note }) {
+  const names = titles ?? labels;
   const box = useRef(null);
   const W = useWidth(box);
   const [at, setAt] = useState(null);
@@ -191,7 +193,7 @@ export function Lines({ title, labels, series, fmt, yFmt, height = 220, yMax = n
     setAt(i);
   };
   const every = n > 8 && W < 520 ? 3 : n > 8 && W < 760 ? 2 : 1;
-  const tip = at == null ? null : { x: x(at), y: 4, flip: x(at) > W * 0.6, title: labels[at],
+  const tip = at == null ? null : { x: x(at), y: 4, flip: x(at) > W * 0.6, title: names[at],
     rows: series.map((s) => ({ name: s.name, color: s.color, value: fmt(s.values[at]) })) };
   return (
     <figure className="chart">
@@ -219,14 +221,14 @@ export function Lines({ title, labels, series, fmt, yFmt, height = 220, yMax = n
           ))}
           {labels.map((l, i) => (
             <rect key={l} className="chart-hit" x={x(i) - (plotW / Math.max(1, n - 1)) / 2} y={PAD.t} width={plotW / Math.max(1, n - 1)} height={plotH}
-              fill="transparent" tabIndex={0} aria-label={`${l}: ${series.map((s) => `${s.name} ${fmt(s.values[i])}`).join(', ')}`}
+              fill="transparent" tabIndex={0} aria-label={`${names[i]}: ${series.map((s) => `${s.name} ${fmt(s.values[i])}`).join(', ')}`}
               onFocus={() => setAt(i)} onBlur={() => setAt(null)} />
           ))}
         </svg>
         <Tip tip={tip} kind="line" />
       </div>
       {note && <p className="muted small chart-note">{note}</p>}
-      {table && <TableView labels={labels} series={series} fmt={fmt} caption={title} />}
+      {table && <TableView labels={names} series={series} fmt={fmt} caption={title} />}
     </figure>
   );
 }
