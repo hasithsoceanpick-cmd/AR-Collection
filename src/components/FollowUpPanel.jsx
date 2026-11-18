@@ -4,11 +4,12 @@ import { rpc } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { lkr, ref } from '../lib/format';
 import { KIND_LABEL, STATUS } from '../lib/workflow';
-import NoteEditor from './NoteEditor';
+import NotesList from './NotesList';
 import InvoiceNotes from './InvoiceNotes';
 import {
-  CHANNELS, OUTCOMES, METHODS, REASONS, RESOLVERS, RESOLUTIONS, PROMISE, ACTIVE,
+  CHANNELS, OUTCOMES, METHODS, REASONS, RESOLVERS, RESOLUTIONS, PROMISE, ACTIVE, PAY_METHODS,
   channelLabel, outcomeLabel, methodLabel, reasonLabel, resolverLabel, resolutionLabel, dmy, dmyTime, addDays, zero, collectionLink,
+  payMethodLabel, promiseMethodFor,
 } from '../lib/followup';
 
 const num = (v) => Number(String(v ?? '').replace(/,/g, ''));
@@ -26,7 +27,7 @@ function ContactForm({ data, corrects, onCancel, onSaved }) {
   const [next, setNext] = useState('');
   const [pAmt, setPAmt] = useState('');
   const [pOn, setPOn] = useState('');
-  const [pMethod, setPMethod] = useState('');
+  const [pMethod, setPMethod] = useState(() => promiseMethodFor(data.customer.pay_method));
   const [dAmt, setDAmt] = useState('');
   const [dReason, setDReason] = useState('');
   const [dRole, setDRole] = useState('');
@@ -257,6 +258,45 @@ function OwnerPicker({ data, onDone }) {
 }
 
 // The follow-up panel on a customer's page: owner, net to chase, log a contact, promises, disputes, money on its way, history.
+// How the customer pays and whether it is a staff purchases account. Finance sets them; everyone else sees them.
+function CustomerProfile({ data, onDone }) {
+  const c = data.customer;
+  const [editing, setEditing] = useState(false);
+  const [method, setMethod] = useState(c.pay_method ?? '');
+  const [staff, setStaff] = useState(!!c.is_staff);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  async function save(e) {
+    e.preventDefault(); setBusy(true); setErr('');
+    try { await rpc('cc_customer_profile_set', { p_customer_no: c.customer_no, p_is_staff: staff, p_pay_method: method }); setEditing(false); await onDone(); }
+    catch (x) { setErr(x.message); } finally { setBusy(false); }
+  }
+  if (!editing) {
+    return (
+      <div className="fu-pad fu-profile">
+        <span className="flabel">Pays by</span> <strong>{payMethodLabel(c.pay_method) ?? <span className="muted">not set</span>}</strong>
+        {c.is_staff && <span className="pill staff">Staff purchases account</span>}
+        {data.can.profile && <> <button type="button" className="link small" onClick={() => { setMethod(c.pay_method ?? ''); setStaff(!!c.is_staff); setEditing(true); }}>Change</button></>}
+      </div>
+    );
+  }
+  return (
+    <form className="fu-pad fu-profile-form" onSubmit={save}>
+      <label className="field inline"><span className="flabel">Pays by</span>
+        <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
+          <option value="">Not set</option>{PAY_METHODS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+        </select></label>
+      <label className="small"><input type="checkbox" checked={staff} onChange={(e) => setStaff(e.target.checked)} /> Staff purchases account
+        <span className="muted"> (kept off the main worklist, followed up by finance on the Staff tab)</span></label>
+      <div className="row">
+        <button className="btn small primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+        <button className="link small" type="button" onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
+      </div>
+      {err && <p className="error small">{err}</p>}
+    </form>
+  );
+}
+
 export default function FollowUpPanel({ customerNo }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -327,9 +367,10 @@ export default function FollowUpPanel({ customerNo }) {
         <div><dt>Disputed</dt><dd>{lkr(s.disputed)}</dd></div>
         <div className="fu-net"><dt>Net to chase</dt><dd>{lkr(s.net)}</dd></div>
       </dl>
-      {c.scope === 'local' && (data.note || data.can.write) && (
-        <div className="fu-pad fu-custnote"><span className="flabel">Note</span>
-          <NoteEditor customerNo={c.customer_no} note={data.note} canWrite={data.can.write} onSaved={load} /></div>
+      <CustomerProfile data={data} onDone={load} />
+      {(data.line_notes?.length > 0 || (c.scope === 'local' && data.can.write)) && (
+        <div className="fu-pad fu-custnote"><span className="flabel">Notes (action points)</span>
+          <NotesList customerNo={c.customer_no} notes={data.line_notes} canWrite={data.can.write && c.scope === 'local'} onChanged={load} /></div>
       )}
 
       {saved && (
@@ -392,8 +433,9 @@ export default function FollowUpPanel({ customerNo }) {
             ) : h.kind === 'note' ? (
               <li key={`n${h.n.id}`} className="fu-noteh">
                 <span className="fu-when">{dmyTime(h.at)}</span>
-                <div><strong>{h.n.doc_no ? `Note on ${h.n.doc_no}` : 'Customer note'}{h.n.text ? (h.n.replaces_id ? ' changed' : '') : ' cleared'}</strong>
-                  <span className="muted small"> · {h.n.by}</span>{h.n.text && <p className="fu-note">{h.n.text}</p>}</div>
+                <div><strong>{h.n.doc_no ? `Note on ${h.n.doc_no}` : 'Customer note'}{h.n.text ? (h.n.replaces_id ? ' edited' : '') : ' cleared'}</strong>
+                  <span className="muted small"> · {h.n.by}{h.n.due_on ? ` · due ${dmy(h.n.due_on)}` : ''}</span>{h.n.text && <p className="fu-note">{h.n.text}</p>}
+                  {h.n.cleared_at && <div className="muted small">Ticked off by {h.n.cleared_by}, {dmy(h.n.cleared_at)}{h.n.cleared_note ? `: ${h.n.cleared_note}` : ''}</div>}</div>
               </li>
             ) : (
               <li key={`l${h.l.at}${h.l.action}`} className="fu-log">

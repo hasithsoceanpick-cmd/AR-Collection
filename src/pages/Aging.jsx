@@ -4,12 +4,13 @@ import { rpc } from '../lib/supabase';
 import { lkr, fmtDate, todayISO } from '../lib/format';
 import { BASIS, OVERDUE, bucketLabel, postBucketLabel, daysFrom, withPostingAge, docType, unpack, downloadAging } from '../lib/aging';
 import LedgerStatus from '../components/LedgerStatus';
-import NoteEditor from '../components/NoteEditor';
+import NotesList from '../components/NotesList';
+import BulkPromise from '../components/BulkPromise';
 import InvoicePromise from '../components/InvoicePromise';
 import HoverCard from '../components/HoverCard';
 import PendingCard from '../components/PendingCard';
 import { groupPending } from '../lib/pending';
-import { ACTIVE, addDays, dmy } from '../lib/followup';
+import { ACTIVE, dmy, daysBetween, PAY_METHODS, payMethodLabel } from '../lib/followup';
 
 // past their due date, whichever way the page is aged
 const overdue = (r) => OVERDUE.reduce((a, k) => a + Number(r[k] ?? 0), 0);
@@ -48,19 +49,20 @@ export default function Aging() {
   const pendOf = (no) => pending?.byCust[no] ?? null;
   // invoices ticked on the open customer, to give them one promised date
   const [sel, setSel] = useState(() => new Set());
-  const [bulkDate, setBulkDate] = useState('');
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkMsg, setBulkMsg] = useState(null);
-  function toggleOpen(no) { setOpen(open === no ? null : no); setSel(new Set()); setBulkMsg(null); }
-  async function setPromised(no, e) {
-    e.preventDefault(); setBulkBusy(true); setBulkMsg(null);
+  function toggleOpen(no) { setOpen(open === no ? null : no); setSel(new Set()); }
+  // per customer: last payment, average days to pay, average balance, promises still expected, open notes, payment method
+  const [stats, setStats] = useState(null);   // customer no. -> figures (null: not installed or not loaded)
+  const [statsCan, setStatsCan] = useState({});
+  const [method, setMethod] = useState('');
+  const loadStats = useCallback(async () => {
     try {
-      const res = await rpc('cc_ar_promise_invoices', { p_customer_no: no, p_docs: [...sel], p_promised_on: bulkDate });
-      setBulkMsg({ ...res, date: bulkDate });
-      setSel(new Set());
-      await loadMarks(no);
-    } catch (x) { setBulkMsg({ error: x.message }); } finally { setBulkBusy(false); }
-  }
+      const s = await rpc('cc_ar_customer_stats', { p_as_at: asAt });
+      setStats(Object.fromEntries((s?.rows ?? []).map((x) => [x.customer_no, x]))); setStatsCan(s?.can ?? {});
+    } catch { setStats(null); }
+  }, [asAt]);
+  useEffect(() => { loadStats(); }, [loadStats]);
+  const stOf = (no) => stats?.[no] ?? null;
+  const sinceLast = (no) => (stOf(no)?.last_pay ? daysBetween(stOf(no).last_pay.on, asAt) : null);
 
   const loadMarks = useCallback(async (no) => {
     try { const m = await rpc('cc_ar_marks', { p_customer_no: no }); setMarks((s) => ({ ...s, [no]: m })); }
@@ -85,11 +87,25 @@ export default function Aging() {
     const old90 = (r) => B.old90.reduce((a, k) => a + Number(r[k] ?? 0), 0);
     const list = rows.filter((r) => (!term || r.name.toLowerCase().includes(term) || r.customer_no.toLowerCase().includes(term))
       && (!group || r.group === group)
+      && (!method || (method === 'none' ? !stOf(r.customer_no)?.pay_method : stOf(r.customer_no)?.pay_method === method))
       && (only === 'all' || (only === 'overdue' && overdue(r) > 0.004) || (only === 'over90' && old90(r) > 0.004) || (only === 'credit' && Number(r.balance) < 0)
-        || (only === 'pending' && Boolean(pending?.byCust[r.customer_no])) || (only === 'noterms' && noPeriod(r))));
-    const val = (r) => (sort.key === 'name' ? r.name.toLowerCase() : sort.key === 'overdue' ? overdue(r) : Number(r[sort.key] ?? 0));
+        || (only === 'pending' && Boolean(pending?.byCust[r.customer_no])) || (only === 'noterms' && noPeriod(r))
+        || (only === 'staff' && stOf(r.customer_no)?.is_staff)));
+    // never paid sorts as the longest wait; no average sorts below every customer that has one
+    const val = (r) => {
+      if (sort.key === 'name') return r.name.toLowerCase();
+      if (sort.key === 'overdue') return overdue(r);
+      if (sort.key === 'last_pay') return sinceLast(r.customer_no) ?? 1e9;
+      if (sort.key === 'avg_days') return stOf(r.customer_no)?.avg_days ?? -1;
+      if (sort.key === 'avg_balance') return Number(stOf(r.customer_no)?.avg_balance ?? -1e15);
+      return Number(r[sort.key] ?? 0);
+    };
     return [...list].sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * sort.dir || a.name.localeCompare(b.name));
-  }, [rows, term, group, only, sort, pending, B, terms, termsOk]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows, term, group, only, sort, pending, B, terms, termsOk, stats, method]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const nStaff = useMemo(() => rows.filter((r) => stOf(r.customer_no)?.is_staff).length, [rows, stats]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const promisedShown = shown.reduce((a, r) => a + Number(stOf(r.customer_no)?.promised_open ?? 0), 0);
+  const promisedN = shown.reduce((a, r) => a + Number(stOf(r.customer_no)?.promised_n ?? 0), 0);
+  const XCOLS = stats ? [{ key: 'last_pay', label: 'Last payment' }, { key: 'avg_days', label: 'Avg days to pay' }, { key: 'avg_balance', label: 'Avg balance owed' }] : [];
   const nPending = useMemo(() => rows.filter((r) => pending?.byCust[r.customer_no]).length, [rows, pending]);
   const nNoPeriod = useMemo(() => rows.filter(noPeriod).length, [rows, terms, termsOk]);   // eslint-disable-line react-hooks/exhaustive-deps
   const total = (k) => shown.reduce((a, r) => a + Number(r[k] ?? 0), 0);
@@ -104,14 +120,14 @@ export default function Aging() {
       const keep = new Set(shown.map((r) => r.customer_no));
       let all = null;
       try { all = await rpc('cc_ar_marks', { p_customer_no: null }); } catch { /* follow-up not installed: no notes or promises in the file */ }
-      await downloadAging({ asAt, rows: shown.map((r) => ({ ...r, terms: termsOf(r) })), entries: entries.filter((e) => keep.has(e.customer_no)), names, marks: all, pending, basis });
+      await downloadAging({ asAt, rows: shown.map((r) => ({ ...r, terms: termsOf(r) })), entries: entries.filter((e) => keep.has(e.customer_no)), names, marks: all, pending, basis, stats });
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
   const positive = B.buckets.reduce((a, b) => a + Math.max(0, allTotal(b.key)), 0);
   function changeBasis(by) {
     // a sort on a bucket of the other basis goes back to the balance
-    if (!['name', 'balance', 'credits', 'overdue'].includes(sort.key)) setSort({ key: 'balance', dir: -1 });
+    if (!['name', 'balance', 'credits', 'overdue', 'last_pay', 'avg_days', 'avg_balance'].includes(sort.key)) setSort({ key: 'balance', dir: -1 });
     if (only === 'over90') setOnly('all');
     go(asAt, by);
   }
@@ -160,9 +176,17 @@ export default function Aging() {
                 <option value="">All groups</option>{groups.map((g) => <option key={g} value={g}>{g}</option>)}
               </select>
             )}
+            {stats && (
+              <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
+                <option value="">Every payment method</option>
+                {PAY_METHODS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                <option value="none">Not set</option>
+              </select>
+            )}
             <div className="tabs" role="tablist" aria-label="Show">
               {[['all', 'All'], ['overdue', 'Overdue'], ['over90', basis === 'posting' ? 'Over 90 days old' : 'Over 90 days'], ['credit', 'In credit'],
-                ...(nPending ? [['pending', `In the app, not in BC (${nPending})`]] : []), ...(termsOk ? [['noterms', `No credit period (${nNoPeriod})`]] : [])].map(([k, l]) => (
+                ...(nPending ? [['pending', `In the app, not in BC (${nPending})`]] : []), ...(termsOk ? [['noterms', `No credit period (${nNoPeriod})`]] : []),
+                ...(statsCan.profile && nStaff ? [['staff', `Staff (${nStaff})`]] : [])].map(([k, l]) => (
                 <button key={k} type="button" role="tab" aria-selected={only === k} className={`tab${only === k ? ' on' : ''}`} onClick={() => setOnly(k)}>{l}</button>
               ))}
             </div>
@@ -177,13 +201,27 @@ export default function Aging() {
                 <thead><tr>
                   <th><button type="button" className="th-sort" onClick={() => by('name')}>Customer{arrow('name')}</button></th>
                   {COLS.map((c) => <th key={c.key} className="num"><button type="button" className="th-sort" onClick={() => by(c.key)}>{c.label}{arrow(c.key)}</button></th>)}
+                  {XCOLS.map((c) => <th key={c.key} className={`num aging-x${c.key === 'last_pay' ? ' first' : ''}`}><button type="button" className="th-sort" onClick={() => by(c.key)}>{c.label}{arrow(c.key)}</button></th>)}
                 </tr></thead>
                 <tbody>{shown.map((r) => (
                   <Fragment key={r.customer_no}>
-                    <tr className={`click${open === r.customer_no ? ' on' : ''}${pendOf(r.customer_no) ? ' has-pending' : ''}`} onClick={() => toggleOpen(r.customer_no)}>
+                    <tr className={`click${open === r.customer_no ? ' on' : ''}${pendOf(r.customer_no) ? ' has-pending' : ''}`}
+                      onClick={(e) => { if (!e.target.closest('a,button,input,textarea,select,label,form,.ap-notes')) toggleOpen(r.customer_no); }}>
                       <td>
-                        <button type="button" className="link row-toggle" aria-expanded={open === r.customer_no}>{r.name}</button>
+                        <button type="button" className="link row-toggle" aria-expanded={open === r.customer_no} onClick={() => toggleOpen(r.customer_no)}>{r.name}</button>
                         <div className="muted small">{r.customer_no}{r.group ? ` · ${r.group}` : ''}{termsOf(r) ? ` · ${termsOf(r)}` : ''}{r.incomplete ? ' · history incomplete' : ''}</div>
+                        {stOf(r.customer_no) && (stOf(r.customer_no).pay_method || stOf(r.customer_no).is_staff || Number(stOf(r.customer_no).promised_open) > 0) && (
+                          <div className="aging-tags">
+                            {stOf(r.customer_no).is_staff && <span className="pill staff">Staff</span>}
+                            {stOf(r.customer_no).pay_method && <span className="pill method">{payMethodLabel(stOf(r.customer_no).pay_method)}</span>}
+                            {Number(stOf(r.customer_no).promised_open) > 0 && <span className="pill muted">Promised {lkr(stOf(r.customer_no).promised_open)}{stOf(r.customer_no).promised_n > 1 ? ` (${stOf(r.customer_no).promised_n})` : ''}</span>}
+                          </div>
+                        )}
+                        {stOf(r.customer_no) && (stOf(r.customer_no).notes.length > 0 || stOf(r.customer_no).can_note) && (
+                          <div className="aging-rownotes">
+                            <NotesList customerNo={r.customer_no} notes={stOf(r.customer_no).notes} canWrite={stOf(r.customer_no).can_note} compact onChanged={loadStats} />
+                          </div>
+                        )}
                         {pendOf(r.customer_no) && (
                           <HoverCard className="pending-mark" card={<PendingCard receipts={pendOf(r.customer_no).list} />}>
                             <span className="pending-dot" aria-hidden="true" />In the app, not in BC: LKR {lkr(pendOf(r.customer_no).total)}
@@ -192,11 +230,23 @@ export default function Aging() {
                         )}
                       </td>
                       {COLS.map((c) => <td key={c.key} className={`num${c.key === 'balance' ? ' strong' : ''}${Math.abs(Number(r[c.key])) < 0.005 ? ' zero' : ''}`}>{Math.abs(Number(r[c.key])) < 0.005 ? '–' : lkr(r[c.key])}</td>)}
+                      {stats && (() => {
+                        const x = stOf(r.customer_no);
+                        const since = sinceLast(r.customer_no);
+                        return <>
+                          <td className="num aging-x first">{x?.last_pay
+                            ? <>{dmy(x.last_pay.on)}<div className={`small${since > 60 ? ' aging-stale' : ' muted'}`}>{since === 0 ? 'today' : `${since} day${since === 1 ? '' : 's'} ago`}</div>
+                                {x.last_pay.src === 'app' && <div className="small pending-sub" title={`${x.last_pay.ref}: recorded in the app, not in BC yet`}>in the app</div>}</>
+                            : <span className="aging-stale small">No payment on record</span>}</td>
+                          <td className="num aging-x">{x?.avg_days != null ? <>{x.avg_days} days<div className="muted small">{x.avg_days_n} invoice{x.avg_days_n === 1 ? '' : 's'}</div></> : <span className="muted">–</span>}</td>
+                          <td className="num aging-x">{x?.avg_balance != null ? lkr(x.avg_balance) : <span className="muted">–</span>}</td>
+                        </>;
+                      })()}
                     </tr>
                     {open === r.customer_no && (() => {
                       const m = marks[r.customer_no];
                       const withMarks = m && !m.hidden;
-                      const noteOf = (doc) => (withMarks ? m.notes.find((n) => n.doc_no === doc) ?? null : null);
+                      const notesOf = (doc) => (withMarks ? m.notes.filter((n) => n.doc_no === doc) : []);
                       const promiseOf = (doc) => (withMarks ? m.promises.find((x) => x.doc_no === doc) ?? null : null);
                       const list = byCustomer[r.customer_no] ?? [];
                       const canTick = withMarks && m.can.write;
@@ -208,7 +258,7 @@ export default function Aging() {
                       const flip = (doc) => setSel((x) => { const y = new Set(x); if (y.has(doc)) y.delete(doc); else y.add(doc); return y; });
                       const pend = (doc) => pending?.byDoc[`${r.customer_no}|${doc}`] ?? null;
                       return (
-                      <tr className="aging-detail"><td colSpan={COLS.length + 1}>
+                      <tr className="aging-detail"><td colSpan={COLS.length + XCOLS.length + 1}>
                         <div className="row between">
                           <strong>{r.open} open invoice{r.open === 1 ? '' : 's'}{basis === 'posting'
                             ? (r.age_oldest != null ? `, the oldest posted ${r.age_oldest} days ago` : '')
@@ -216,32 +266,9 @@ export default function Aging() {
                           <Link to={`/customer/${encodeURIComponent(r.customer_no)}?to=${asAt}`}>Open the customer's ledger</Link>
                         </div>
                         {m?.hidden && <p className="muted small">Notes and promises on this customer are kept by {m.owner}.</p>}
-                        {canTick && choices.length > 1 && picked.length === 0 && !bulkMsg && (
-                          <p className="muted small aging-bulk-hint">Tick several invoices to give them one expected collection date.</p>
-                        )}
-                        {canTick && picked.length > 0 && (
-                          <form className="aging-bulk" onSubmit={(e) => setPromised(r.customer_no, e)} aria-label="Set one promised date for the ticked invoices">
-                            <strong>{picked.length} invoice{picked.length === 1 ? '' : 's'} ticked</strong>
-                            <span className="muted">LKR {lkr(pickedTotal)}</span>
-                            <label className="aging-bulk-date"><span className="small">Expected collection date</span>
-                              <input type="date" min={m.today} max={addDays(m.today, 180)} value={bulkDate} onChange={(e) => setBulkDate(e.target.value)} required
-                                aria-label="Expected collection date for the ticked invoices" /></label>
-                            <span className="muted small fu-dmy" aria-live="polite">{bulkDate ? dmy(bulkDate) : ''}</span>
-                            <button className="btn small primary" type="submit" disabled={bulkBusy || !bulkDate}>{bulkBusy ? 'Saving…' : 'Set promised date'}</button>
-                            <button className="link small" type="button" onClick={() => setSel(new Set())} disabled={bulkBusy}>Clear</button>
-                            <span className="muted small">Each invoice is promised for what is open on it.</span>
-                          </form>
-                        )}
-                        {bulkMsg && (
-                          <div className={`aging-bulk-msg${bulkMsg.error ? ' error' : ''}`} role="status">
-                            {bulkMsg.error ? bulkMsg.error : <>
-                              {bulkMsg.set > 0 && <span>Promised by <strong>{dmy(bulkMsg.date)}</strong>: {bulkMsg.set} invoice{bulkMsg.set === 1 ? '' : 's'}. </span>}
-                              {bulkMsg.unchanged > 0 && <span>{bulkMsg.unchanged} already promised by that date. </span>}
-                              {bulkMsg.skipped?.length > 0 && <span>Not set:</span>}
-                              {bulkMsg.skipped?.length > 0 && <ul>{bulkMsg.skipped.map((x) => <li key={x.doc_no}>{x.reason.includes(x.doc_no) ? x.reason : <><strong>{x.doc_no}</strong>: {x.reason}</>}</li>)}</ul>}
-                            </>}
-                            <button type="button" className="link small" onClick={() => setBulkMsg(null)}>Dismiss</button>
-                          </div>
+                        {canTick && (
+                          <BulkPromise key={r.customer_no} customerNo={r.customer_no} picked={picked} pickedTotal={pickedTotal} choices={choices.length}
+                            today={m.today} onClear={() => setSel(new Set())} onSaved={async () => { await loadMarks(r.customer_no); await loadStats(); }} />
                         )}
                         <div className="table-wrap flat">
                           <table className="table">
@@ -282,10 +309,10 @@ export default function Aging() {
                                 {withMarks && <>
                                   <td className="aging-promise">{Number(e.remaining) > 0
                                     ? <InvoicePromise customerNo={r.customer_no} docNo={e.document_no} open={e.remaining} promise={promiseOf(e.document_no)}
-                                        canWrite={m.can.write} today={m.today} onChanged={() => loadMarks(r.customer_no)} />
+                                        canWrite={m.can.write} today={m.today} onChanged={async () => { await loadMarks(r.customer_no); await loadStats(); }} />
                                     : <span className="muted">–</span>}</td>
-                                  <td className="aging-note"><NoteEditor customerNo={r.customer_no} docNo={e.document_no} note={noteOf(e.document_no)}
-                                    canWrite={m.can.write} onSaved={() => loadMarks(r.customer_no)} /></td>
+                                  <td className="aging-note"><NotesList customerNo={r.customer_no} docNo={e.document_no} notes={notesOf(e.document_no)}
+                                    canWrite={m.can.write} compact onChanged={() => loadMarks(r.customer_no)} /></td>
                                 </>}
                               </tr>
                               );
@@ -308,7 +335,14 @@ export default function Aging() {
                 <tfoot><tr>
                   <td>Total{shown.length !== data.rows.length ? ` (${shown.length} of ${data.rows.length})` : ` (${shown.length})`}</td>
                   {COLS.map((c) => <td key={c.key} className="num">{lkr(total(c.key))}</td>)}
-                </tr></tfoot>
+                  {stats && <><td className="aging-x first" /><td className="aging-x" /><td className="num aging-x">{lkr(shown.reduce((a, r) => a + Number(stOf(r.customer_no)?.avg_balance ?? 0), 0))}</td></>}
+                </tr>
+                {stats && (
+                  <tr className="aging-promised-total">
+                    <td colSpan={COLS.length + XCOLS.length + 1}>Promised collections still expected (open, due today, late in grace):{' '}
+                      <strong>LKR {lkr(promisedShown)}</strong> in {promisedN} promise{promisedN === 1 ? '' : 's'}</td>
+                  </tr>
+                )}</tfoot>
               </table>
             </div>
           )}

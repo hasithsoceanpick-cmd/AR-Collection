@@ -39,7 +39,7 @@ export function navLinks(role, isAdmin = false) {
       { to: '/payhere', label: s ? 'PayHere web payments' : 'PayHere' }, { to: '/not-in-bc', label: 'Not in BC yet' }] : []),
     ...(d || f ? [{ to: '/deposits', label: 'Deposits', main: true }] : []),
     { to: '/reports', label: 'Reports', main: true },
-    ...(s ? [{ to: '/customer-list', label: 'Customers', section: 'customers' }, { to: '/followup', label: 'AR follow-up', section: 'followup', count: ['ar_due'] }] : []),
+    ...(s ? [{ to: '/customer-list', label: 'Customers', section: 'customers' }, { to: '/followup', label: 'AR follow-up', section: 'followup', count: ['ar_due', 'notes_due'] }] : []),
     ...(f ? [{ to: '/customer-list', label: 'Customers' }, { to: '/aging', label: 'Customer aging' }] : []),
     ...(f ? [{ to: '/overview', label: 'Overview' }, { to: '/bank', label: 'Bank' }, { to: '/bc-export', label: 'Export to BC' },
       { to: '/bc-check', label: 'BC check' }, { to: '/bank-rec', label: 'Bank rec' }] : []),
@@ -112,11 +112,11 @@ export default function Layout() {
     try {
       if (!fin) {
         const ar = await rpc('cc_ar_tick').catch(() => null);
-        setToday(ar ? { ar, queue: { ar_due: { count: ar.due } } } : null);
+        setToday(ar ? { ar, queue: { ar_due: { count: ar.due }, notes_due: { count: ar.notes_due ?? 0 } } } : null);
         return;
       }
       const [t, ar] = await Promise.all([rpc('cc_finance_today'), rpc('cc_ar_tick').catch(() => null)]);
-      setToday(ar ? { ...t, ar, queue: { ...(t?.queue ?? {}), ar_due: { count: ar.due } } } : t);
+      setToday(ar ? { ...t, ar, queue: { ...(t?.queue ?? {}), ar_due: { count: ar.due }, notes_due: { count: ar.notes_due ?? 0 } } } : t);
     } catch { /* keep the last counts */ }
   }, [fin, counted]);
   useEffect(() => {

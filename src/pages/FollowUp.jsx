@@ -3,9 +3,9 @@ import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { rpc } from '../lib/supabase';
 import { lkr } from '../lib/format';
 import { BUCKETS } from '../lib/aging';
-import { PROMISE, ACTIVE, dmy, outcomeLabel, channelLabel, addDays, daysBetween, zero } from '../lib/followup';
+import { PROMISE, ACTIVE, dmy, outcomeLabel, channelLabel, addDays, daysBetween, zero, payMethodLabel } from '../lib/followup';
 import LedgerStatus from '../components/LedgerStatus';
-import NoteEditor from '../components/NoteEditor';
+import NotesList from '../components/NotesList';
 import InvoiceNotes from '../components/InvoiceNotes';
 
 const OVERDUE = BUCKETS.filter((b) => b.key !== 'not_due');
@@ -60,7 +60,8 @@ function Settings({ data, onDone }) {
 }
 
 // AR follow-up worklist: every local customer with an overdue balance, highest priority first.
-export default function FollowUp() {
+// staff: the staff purchases accounts instead (finance only), which are kept off the main list.
+export default function FollowUp({ staff = false }) {
   const { reloadToday } = useOutletContext() ?? {};
   const nav = useNavigate();
   const [data, setData] = useState(null);
@@ -77,9 +78,9 @@ export default function FollowUp() {
   const load = useCallback(async () => {
     try {
       rpc('cc_ar_tick').then(() => reloadToday?.()).catch(() => {});
-      setData(await rpc('cc_ar_worklist', { p_as_at: null })); setError('');
+      setData(await rpc('cc_ar_worklist', staff ? { p_as_at: null, p_staff: true } : { p_as_at: null })); setError('');
     } catch (e) { setError(e.message); }
-  }, [reloadToday]);
+  }, [reloadToday, staff]);
   useEffect(() => { load(); }, [load]);
 
   const rows = useMemo(() => data?.rows ?? [], [data]);
@@ -99,18 +100,23 @@ export default function FollowUp() {
   const actionsDue = rows.filter((r) => r.next_action_on && r.next_action_on <= t).length;
   const brokenN = rows.filter((r) => r.broken_60 > 0).length;
 
-  if (!data && !error) return <section className="wide"><h1>AR follow-up</h1><p className="muted">Loading…</p></section>;
-  if (!data) return <section className="wide"><h1>AR follow-up</h1><p className="error">{error}</p></section>;
-  const tie = data.tie;
+  const title = staff ? 'Staff purchases' : 'AR follow-up';
+  if (!data && !error) return <section className="wide"><h1>{title}</h1><p className="muted">Loading…</p></section>;
+  if (!data) return <section className="wide"><h1>{title}</h1><p className="error">{error}</p></section>;
+  const tie = staff ? null : data.tie;
+  const promisedN = shown.reduce((a, r) => a + Number(r.promised_n || 0), 0);
   return (
     <section className="wide follow-up">
       <div className="page-head">
         <div>
-          <h1>AR follow-up</h1>
-          <p className="lede">Local customers with overdue invoices, highest priority first. <strong>Net to chase</strong> is what is overdue less the money
-            already on its way (receipts in the app not in BC yet, parked transfers, card, cash and PayHere), unapplied credits and disputed invoices.</p>
+          <h1>{title}</h1>
+          {staff
+            ? <p className="lede">Staff purchases accounts with overdue invoices. They are kept off the main worklist and its totals, and only finance sees them.
+                Tag or untag an account on the customer’s page.</p>
+            : <p className="lede">Local customers with overdue invoices, highest priority first. <strong>Net to chase</strong> is what is overdue less the money
+                already on its way (receipts in the app not in BC yet, parked transfers, card, cash and PayHere), unapplied credits and disputed invoices.</p>}
         </div>
-        {data.can.admin && <button className="btn small" type="button" aria-expanded={showSettings} onClick={() => setShowSettings(!showSettings)}>Settings</button>}
+        {data.can.admin && !staff && <button className="btn small" type="button" aria-expanded={showSettings} onClick={() => setShowSettings(!showSettings)}>Settings</button>}
       </div>
       {showSettings && <Settings data={data} onDone={async () => { setShowSettings(false); await load(); }} />}
       <LedgerStatus status={data.status} />
@@ -127,10 +133,11 @@ export default function FollowUp() {
         <p className="fu-tie muted small">
           Ties to <Link to={`/aging?asAt=${data.as_at}`}>Customer aging</Link> as at {dmy(data.as_at)}: overdue LKR {lkr(tie.aging.overdue)} = {lkr(tie.listed.overdue)} on this list
           {!zero(tie.retail.overdue) && <> + {lkr(tie.retail.overdue)} retail customers under {data.settings.retail_overdue_days} days ({tie.retail.customers})</>}
-          {!zero(tie.no_group.overdue) && <> + {lkr(tie.no_group.overdue)} needing a posting group ({tie.no_group.customers})</>}.
+          {!zero(tie.no_group.overdue) && <> + {lkr(tie.no_group.overdue)} needing a posting group ({tie.no_group.customers})</>}
+          {tie.staff && !zero(tie.staff.overdue) && <> + {lkr(tie.staff.overdue)} on <Link to="/followup/staff">staff purchases</Link> ({tie.staff.customers})</>}.
         </p>
       )}
-      {data.no_group?.length > 0 && (
+      {!staff && data.no_group?.length > 0 && (
         <details className="notice fu-nogroup">
           <summary><strong>{data.no_group.length} customer{data.no_group.length === 1 ? ' has' : 's have'} no posting group in BC</strong> and {data.no_group.length === 1 ? 'is' : 'are'} kept off the list. Give {data.no_group.length === 1 ? 'it' : 'them'} one in BC and upload the customer list again.</summary>
           <ul>{data.no_group.map((c) => <li key={c.customer_no}><Link to={`/customer/${encodeURIComponent(c.customer_no)}`}>{c.name}</Link> <span className="muted small">{c.customer_no}{c.in_list ? '' : ' · not in the customer list'} · overdue {lkr(c.overdue)}</span></li>)}</ul>
@@ -170,7 +177,7 @@ export default function FollowUp() {
               const isOpen = open.has(r.customer_no);
               return (
                 <Fragment key={r.customer_no}>
-                <tr className={`click${isOpen ? ' fu-open' : ''}`} onClick={(e) => { if (!e.target.closest('a,button,textarea,input,select,label,form')) nav(href); }}>
+                <tr className={`click${isOpen ? ' fu-open' : ''}`} onClick={(e) => { if (!e.target.closest('a,button,textarea,input,select,label,form,.ap-notes')) nav(href); }}>
                   <td data-label="Customer">
                     <Link to={href} className="fu-name">{r.name}</Link>
                     <div className="muted small">{r.customer_no} · {r.seg}{r.terms ? ` · ${r.terms}` : ''} · {r.owner ?? <em>Unassigned</em>}</div>
@@ -182,9 +189,10 @@ export default function FollowUp() {
                       {r.over_limit && <span className="pill bad">Over limit</span>}
                       {r.broken_60 > 0 && <span className="pill bad">{r.broken_60} broken</span>}
                       {r.disputes_n > 0 && <span className="pill warn">Disputed {lkr(r.disputed)}</span>}
+                      {r.pay_method && <span className="pill method">{payMethodLabel(r.pay_method)}</span>}
                     </div>
                     <div className="fu-rownote">
-                      <NoteEditor customerNo={r.customer_no} note={r.note} canWrite={data.can.write} onSaved={(n) => setRow(r.customer_no, { note: n })} />
+                      <NotesList customerNo={r.customer_no} notes={r.notes} canWrite={data.can.write} compact onChanged={load} />
                       <button type="button" className="link small fu-inv-toggle" aria-expanded={isOpen} onClick={() => flipOpen(r.customer_no)}>
                         {isOpen ? 'Hide invoices' : `Invoices (${r.n_open})`}{r.inv_notes > 0 ? ` · ${r.inv_notes} note${r.inv_notes === 1 ? '' : 's'}` : ''}
                       </button>
@@ -196,7 +204,8 @@ export default function FollowUp() {
                   <td data-label="Net to chase" className="num"><strong className={zero(r.net) ? 'muted' : 'num-strong'}>{lkr(r.net)}</strong></td>
                   <td data-label="Last contact">{r.last_contact ? <>{dmy(r.last_contact.at)}<div className="muted small">{channelLabel(r.last_contact.channel)}, {outcomeLabel(r.last_contact.outcome).toLowerCase()} · {r.last_contact.by}</div></>
                     : <span className="muted">Never</span>}</td>
-                  <td data-label="Promise">{r.promise ? <><span className={`pill ${ps.tone}`}>{ps.label}</span><div className="small">{lkr(r.promise.amount)} by {dmy(r.promise.promised_on)}</div></> : <span className="muted">–</span>}</td>
+                  <td data-label="Promise">{r.promise ? <><span className={`pill ${ps.tone}`}>{ps.label}</span><div className="small">{lkr(r.promise.amount)} by {dmy(r.promise.promised_on)}</div>
+                    {r.promised_n > 1 && <div className="muted small">{r.promised_n} promises, LKR {lkr(r.promised_open)}</div>}</> : <span className="muted">–</span>}</td>
                   <td data-label="Next action" className={late ? 'fu-late' : ''}>{r.next_action_on ? <>{dmy(r.next_action_on)}{late && <div className="small">{daysBetween(r.next_action_on, t)} days late</div>}{r.next_action_on === t && <div className="small">Today</div>}</> : <span className="muted">–</span>}</td>
                 </tr>
                 {isOpen && (
@@ -211,7 +220,8 @@ export default function FollowUp() {
             })}</tbody>
             <tfoot><tr>
               <td>Total ({shown.length}{shown.length !== rows.length ? ` of ${rows.length}` : ''})</td>
-              <td className="num">{lkr(sum('overdue'))}</td><td className="num">{lkr(sum('on_way'))}</td><td className="num">{lkr(sum('net'))}</td><td colSpan="3" />
+              <td className="num">{lkr(sum('overdue'))}</td><td className="num">{lkr(sum('on_way'))}</td><td className="num">{lkr(sum('net'))}</td><td />
+              <td className="fu-promised-total">{promisedN > 0 ? <>LKR {lkr(sum('promised_open'))}<div className="muted small">{promisedN} promise{promisedN === 1 ? '' : 's'} still expected</div></> : <span className="muted">–</span>}</td><td />
             </tr></tfoot>
           </table>
         </div>

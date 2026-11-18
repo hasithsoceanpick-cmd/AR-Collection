@@ -1382,3 +1382,57 @@ button.rec-row[aria-expanded="true"] { background: #FFF6E8; box-shadow: inset 3p
 .field.inline .flabel { white-space: nowrap; }
 /* phone menu bar for Sales and drivers: tighter, so More (which holds Customers and AR follow-up for Sales) is never cut off */
 @media (max-width: 899px) { .shell:not(.fin) .sidenav a { padding-left: 0.6rem; padding-right: 0.6rem; } }
+
+/* ---------- Notes as action points: several per line, newest first, ticked off when done ---------- */
+.ap-notes { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.notes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.ap-note { display: flex; gap: 0.45rem; align-items: flex-start; }
+.note-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.note-check { flex: none; width: 1.15rem; height: 1.15rem; margin-top: 0.15rem; padding: 0; border: 2px solid var(--leaf-ink); border-radius: 50%;
+  background: var(--surface); cursor: pointer; }
+.note-check:hover, .note-check:focus-visible { background: #E7F4DF; }
+.note-check.none { border-color: var(--rule); cursor: default; }
+.note-check.done { border-color: var(--leaf-ink); background: var(--leaf-ink); position: relative; cursor: default; }
+.note-check.done::after { content: ''; position: absolute; left: 0.3rem; top: 0.08rem; width: 0.25rem; height: 0.5rem; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.note-late .fu-notetext { background: #FDECEC; }
+.note-cleared-item .fu-notetext { background: #EEF1F4; color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(90, 99, 119, 0.5); }
+.note-due { display: inline-block; margin-left: 0.35rem; font-size: 0.8125rem; font-weight: 700; color: var(--sky-ink); white-space: nowrap; }
+.note-due.late { color: var(--red); }
+.note-shared { display: inline-block; margin-left: 0.35rem; color: var(--leaf-ink); font-weight: 700; white-space: nowrap; }
+.note-doc { color: var(--ink); }
+.note-act, .notes-act { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: center; }
+.note-share { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--muted); white-space: nowrap; }
+.note-clear { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.2rem 0; }
+.note-clear input { flex: 1 1 14rem; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--leaf-ink); border-radius: var(--radius); font: inherit; }
+.note-due-field { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); }
+.note-cleared { margin: 0; }
+.ap-notes.compact .fu-noteline { font-size: 0.875rem; }
+.ap-notes.compact .note-body { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 0.6rem; }
+.ap-notes.compact .fu-noteline { flex: 0 1 auto; }
+.ap-notes.compact .note-body > .note-clear, .ap-notes.compact .note-body > .error, .ap-notes.compact .note-body > .note-cleared { flex: 1 1 100%; }
+.aging-rownotes { margin-top: 0.3rem; max-width: 21rem; white-space: normal; }
+.aging-table td:first-child { white-space: normal; }
+.aging-tags, .fu-notes-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem; }
+.pill.staff { color: #6B3FA0; border-color: #6B3FA0; background: #F4EEFB; }
+.pill.method { color: var(--sky-ink); border-color: var(--sky-ink); background: #EEF6FC; }
+.aging-table th.aging-x.first, .aging-table td.aging-x.first { border-left: 2px solid var(--rule); }
+.aging-table td.aging-x { white-space: nowrap; }
+.aging-stale { color: var(--red); font-weight: 700; }
+.aging-promised-total td { text-align: left; font-weight: 400; color: var(--ink); background: #F7F9FC; }
+.fu-promised-total { font-weight: 700; white-space: nowrap; }
+/* the Notes tab */
+.fu-notes-sum { margin: 0.5rem 0; }
+.fu-late-text { color: var(--red); }
+.fu-notes-cards { display: flex; flex-direction: column; gap: 0.75rem; }
+.fu-notes-card { padding: 0.75rem 1rem; }
+.fu-notes-card.late { border-left: 4px solid var(--red); }
+.fu-notes-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
+.fu-notes-tags { align-items: center; align-content: flex-start; margin-top: 0; }
+/* the customer panel: payment method and staff tag */
+.fu-profile { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.fu-profile-form { display: flex; flex-direction: column; gap: 0.5rem; }
+/* several invoices ticked on the worklist and customer panel */
+.fu-bulk { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
+.fu-tickall { display: inline-flex; align-items: center; gap: 0.35rem; }
+.fu-pick { flex: none; width: 1.1rem; height: 1.1rem; accent-color: var(--navy); }
+.fu-invnote.ticked { background: #F1F4FB; }

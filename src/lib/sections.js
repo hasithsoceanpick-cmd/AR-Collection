@@ -35,10 +35,12 @@ export function financeSections(isAdmin = false) {
         { to: '/aging', label: 'Aging' },
         { to: '/customers', label: 'BC customer files' },
       ] },
-    { key: 'followup', label: 'AR follow-up', short: 'Follow-up', to: '/followup', icon: 'phone', count: ['ar_due'],
+    { key: 'followup', label: 'AR follow-up', short: 'Follow-up', to: '/followup', icon: 'phone', count: ['ar_due', 'notes_due'],
       tabs: [
         { to: '/followup', label: 'Worklist', exact: true, count: ['ar_due'] },
         { to: '/followup/promises', label: 'Promises' },
+        { to: '/followup/notes', label: 'Notes', count: ['notes_due'] },
+        { to: '/followup/staff', label: 'Staff' },
         { to: '/followup/owners', label: 'Owners' },
       ] },
     { key: 'reports', label: 'Reports', short: 'Reports', to: '/reports', icon: 'chart',
@@ -60,10 +62,11 @@ export function salesSections() {
         { to: '/aging', label: 'Aging' },
         { to: '/customers', label: 'BC customer files' },
       ] },
-    { key: 'followup', label: 'AR follow-up', to: '/followup', count: ['ar_due'],
+    { key: 'followup', label: 'AR follow-up', to: '/followup', count: ['ar_due', 'notes_due'],
       tabs: [
         { to: '/followup', label: 'Worklist', exact: true, count: ['ar_due'] },
         { to: '/followup/promises', label: 'Promises' },
+        { to: '/followup/notes', label: 'Notes', count: ['notes_due'] },
       ] },
   ];
 }

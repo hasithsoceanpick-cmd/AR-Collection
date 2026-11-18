@@ -38,6 +38,7 @@ import Settings from './pages/Settings';
 import FollowUp from './pages/FollowUp';
 import FollowUpPromises from './pages/FollowUpPromises';
 import FollowUpOwners from './pages/FollowUpOwners';
+import FollowUpNotes from './pages/FollowUpNotes';
 
 function Gate() {
   const { session, loading, role, isAdmin } = useAuth();
@@ -56,8 +57,10 @@ function Gate() {
         {role === 'finance' && <Route path="bc-close" element={<BcClose />} />}
         {role === 'finance' && <Route path="money-in" element={<MoneyIn />} />}
         {role === 'finance' && <Route path="settings" element={<Settings />} />}
-        {(role === 'finance' || role === 'sales') && <Route path="followup" element={<FollowUp />} />}
+        {(role === 'finance' || role === 'sales') && <Route path="followup" element={<FollowUp key="main" />} />}
         {(role === 'finance' || role === 'sales') && <Route path="followup/promises" element={<FollowUpPromises />} />}
+        {(role === 'finance' || role === 'sales') && <Route path="followup/notes" element={<FollowUpNotes />} />}
+        {role === 'finance' && <Route path="followup/staff" element={<FollowUp staff key="staff" />} />}
         {role === 'finance' && <Route path="followup/owners" element={<FollowUpOwners />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bc-check" element={<BcCheck />} />}
         {(role === 'finance' || role === 'executive') && <Route path="bank-rec" element={<BankRec />} />}

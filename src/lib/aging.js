@@ -1,4 +1,4 @@
-import { PROMISE } from './followup';
+import { PROMISE, payMethodLabel as payLabel } from './followup';
 import { todayISO } from './format';
 import { receiptKind, statusOf } from './pending';
 // Customer aging and ledgers: bucket names, entry labels and the Excel downloads.
@@ -91,29 +91,52 @@ const num = (v) => (v == null ? null : Math.round(Number(v) * 100) / 100);
 
 // The aging report: a summary per customer and every open entry.
 // pending: from groupPending (receipts in the app not in BC yet), or null. basis: 'due' or 'posting'.
-// With 'posting', rows and entries come through withPostingAge.
-export async function downloadAging({ asAt, rows, entries, names, marks = null, pending = null, basis = 'due' }) {
+// With 'posting', rows and entries come through withPostingAge. stats: customer no. -> cc_ar_customer_stats row, or null.
+export async function downloadAging({ asAt, rows, entries, names, marks = null, pending = null, basis = 'due', stats = null }) {
   const XLSX = await import('xlsx');
   const B = BASIS[basis] ?? BASIS.due;
-  const head = ['Customer No.', 'Customer', 'Group', 'Payment terms', ...B.buckets.map((b) => b.label), 'Unapplied credits', 'Balance',
-    ...(pending ? ['In the app, not in BC'] : [])];
   const pendTotal = (c) => (pending?.byCust[c] ? num(pending.byCust[c].total) : null);
-  const keys = [...B.buckets.map((b) => b.key), 'credits', 'balance'];
-  const sum = (k) => num(rows.reduce((a, r) => a + Number(r[k] ?? 0), 0));
+  const st = (c) => stats?.[c] ?? null;
+  const noteText = (list) => (list ?? []).map((n) => `${n.text} (${n.by}, ${ddmmyyyy(String(n.at).slice(0, 10))}${n.due_on ? `, due ${ddmmyyyy(n.due_on)}` : ''})`).join(' | ');
+  const sum = (f) => num(rows.reduce((a, r) => a + Number(f(r) ?? 0), 0));
+  // the customers sheet, column by column: [heading, value of a row, kind (money / date), width, total of the column or null]
+  const scols = [
+    ['Customer No.', (r) => r.customer_no, null, 12, null],
+    ['Customer', (r) => r.name, null, 38, () => `Total: ${rows.length} customer${rows.length === 1 ? '' : 's'}`],
+    ['Group', (r) => r.group ?? '', null, 10, null],
+    ['Payment terms', (r) => r.terms ?? '', null, 12, null],
+    ...B.buckets.map((bk) => [bk.label, (r) => num(r[bk.key]), 'money', 15, () => sum((r) => r[bk.key])]),
+    ['Unapplied credits', (r) => num(r.credits), 'money', 16, () => sum((r) => r.credits)],
+    ['Balance', (r) => num(r.balance), 'money', 16, () => sum((r) => r.balance)],
+    ...(pending ? [['In the app, not in BC', (r) => pendTotal(r.customer_no), 'money', 18, () => sum((r) => pendTotal(r.customer_no))]] : []),
+    ...(stats ? [
+      ['Payment method', (r) => payLabel(st(r.customer_no)?.pay_method) ?? '', null, 16, null],
+      ['Staff purchases', (r) => (st(r.customer_no)?.is_staff ? 'Yes' : ''), null, 9, null],
+      ['Last payment', (r) => (st(r.customer_no)?.last_pay ? excelDate(st(r.customer_no).last_pay.on) : null), 'date', 12, null],
+      ['Days since last payment', (r) => (st(r.customer_no)?.last_pay ? daysFrom(st(r.customer_no).last_pay.on, asAt) : null), null, 10, null],
+      ['Last payment in', (r) => (st(r.customer_no)?.last_pay ? (st(r.customer_no).last_pay.src === 'app' ? `The app (${st(r.customer_no).last_pay.ref})` : `BC (${st(r.customer_no).last_pay.ref})`) : 'No payment on record'), null, 22, null],
+      ['Avg days to pay (12 months)', (r) => st(r.customer_no)?.avg_days ?? null, null, 11, null],
+      ['Invoices averaged', (r) => st(r.customer_no)?.avg_days_n || null, null, 9, null],
+      ['Avg balance owed (12 month-ends)', (r) => (st(r.customer_no)?.avg_balance != null ? num(st(r.customer_no).avg_balance) : null), 'money', 16, () => sum((r) => st(r.customer_no)?.avg_balance)],
+      ['Promised (still expected)', (r) => (Number(st(r.customer_no)?.promised_open) ? num(st(r.customer_no).promised_open) : null), 'money', 16, () => sum((r) => st(r.customer_no)?.promised_open)],
+      ['Open notes on the customer', (r) => noteText(st(r.customer_no)?.notes), null, 60, null],
+    ] : []),
+  ];
+  const at = (list, kind) => list.map((c, i) => (c[2] === kind ? i : -1)).filter((i) => i >= 0);
   const summary = [
     [`Customer aging as at ${ddmmyyyy(asAt)} (by ${basis === 'posting' ? 'posting' : 'due'} date, LKR)`], [],
-    head,
-    ...rows.map((r) => [r.customer_no, r.name, r.group ?? '', r.terms ?? '', ...keys.map((k) => num(r[k])), ...(pending ? [pendTotal(r.customer_no)] : [])]),
-    ['', `Total: ${rows.length} customer${rows.length === 1 ? '' : 's'}`, '', '', ...keys.map(sum),
-      ...(pending ? [num(rows.reduce((a, r) => a + Number(pendTotal(r.customer_no) ?? 0), 0))] : [])],
+    scols.map((c) => c[0]),
+    ...rows.map((r) => scols.map((c) => c[1](r))),
+    scols.map((c) => (c[4] ? c[4]() : '')),
   ];
   const key = (c, d) => `${c}|${d}`;
-  const noteBy = new Map((marks?.notes ?? []).map((n) => [key(n.customer_no, n.doc_no), n]));
+  const notesBy = new Map();
+  for (const n of marks?.notes ?? []) { const k = key(n.customer_no, n.doc_no); notesBy.set(k, [...(notesBy.get(k) ?? []), n]); }
   const promiseBy = new Map((marks?.promises ?? []).map((p) => [key(p.customer_no, p.doc_no), p]));
   // the entries sheet, column by column: [heading, value of an entry, kind (date / money), width]
   const pendList = (e) => pending?.byDoc[key(e.customer_no, e.document_no)] ?? [];
   const promiseOf = (e) => promiseBy.get(key(e.customer_no, e.document_no));
-  const noteOf = (e) => noteBy.get(key(e.customer_no, e.document_no));
+  const notesOf = (e) => notesBy.get(key(e.customer_no, e.document_no));
   const cols = [
     ['Customer No.', (e) => e.customer_no, null, 12],
     ['Customer', (e) => names[e.customer_no] ?? e.customer_no, null, 34],
@@ -132,20 +155,18 @@ export async function downloadAging({ asAt, rows, entries, names, marks = null, 
       ['Promised by', (e) => (promiseOf(e) ? excelDate(promiseOf(e).promised_on) : null), 'date', 12],
       ['Promised amount', (e) => (promiseOf(e) ? num(promiseOf(e).amount) : null), 'money', 16],
       ['Promise status', (e) => (promiseOf(e) ? (PROMISE[promiseOf(e).status]?.label ?? promiseOf(e).status) : ''), null, 14],
-      ['Note', (e) => (noteOf(e) ? `${noteOf(e).text} (${noteOf(e).by})` : ''), null, 50],
+      ['Note', (e) => noteText(notesOf(e)), null, 60],
     ] : []),
     ...(pending ? [
       ['In the app, not in BC', (e) => (pendList(e).length ? num(pendList(e).reduce((a, x) => a + Number(x.applied ?? 0), 0)) : null), 'money', 18],
       ['Receipts in the app', (e) => pendList(e).map((x) => `${x.ref} ${receiptKind(x)}${statusOf(x) ? ` (${statusOf(x).label})` : ''}${x.instructions ? `: ${x.instructions}` : ''}`).join('; '), null, 60],
     ] : []),
   ];
-  const at = (kind) => cols.map((c, i) => (c[2] === kind ? i : -1)).filter((i) => i >= 0);
   const detail = [cols.map((c) => c[0]), ...entries.map((e) => cols.map((c) => c[1](e)))];
   const wb = XLSX.utils.book_new();
-  const nb = B.buckets.length;
-  XLSX.utils.book_append_sheet(wb, sheet(XLSX, summary, { money: Array.from({ length: nb + 2 + (pending ? 1 : 0) }, (_, i) => 4 + i),
-    widths: [12, 38, 10, 12, ...B.buckets.map(() => 15), 16, 16, ...(pending ? [18] : [])], filterFrom: 2, filterTo: summary.length - 2 }), 'Aging');
-  XLSX.utils.book_append_sheet(wb, sheet(XLSX, detail, { dates: at('date'), money: at('money'), widths: cols.map((c) => c[3]), filterFrom: 0, filterTo: detail.length - 1 }), 'Open entries');
+  XLSX.utils.book_append_sheet(wb, sheet(XLSX, summary, { money: at(scols, 'money'), dates: at(scols, 'date'), widths: scols.map((c) => c[3]),
+    filterFrom: 2, filterTo: summary.length - 2 }), 'Aging');
+  XLSX.utils.book_append_sheet(wb, sheet(XLSX, detail, { dates: at(cols, 'date'), money: at(cols, 'money'), widths: cols.map((c) => c[3]), filterFrom: 0, filterTo: detail.length - 1 }), 'Open entries');
   XLSX.writeFile(wb, `Customer aging ${asAt}.xlsx`);
 }
 

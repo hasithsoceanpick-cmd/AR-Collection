@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { rpc } from '../lib/supabase';
 import { lkr, fmtDate, todayISO } from '../lib/format';
 import { downloadNoTerms } from '../lib/aging';
+import { PAY_METHODS, payMethodLabel } from '../lib/followup';
 import LedgerStatus from '../components/LedgerStatus';
 
 // Every customer from BC with what they owe; each opens their ledger.
@@ -17,9 +18,12 @@ export default function CustomerList() {
   const [sort, setSort] = useState({ key: 'name', dir: 1 });
   const [terms, setTerms] = useState(null);   // customer no. -> credit terms in the app (null: not installed or not loaded)
   const [busy, setBusy] = useState(false);
+  const [profiles, setProfiles] = useState(null);   // customer no. -> payment method / staff (null: not installed)
+  const [method, setMethod] = useState('');
 
   useEffect(() => {
     rpc('cc_customer_list', { p_as_at: todayISO() }).then(setData).catch((e) => { setError(e.message); setData({ rows: [] }); });
+    rpc('cc_customer_profiles').then((p) => setProfiles(Object.fromEntries((p?.rows ?? []).map((x) => [x.customer_no, x])))).catch(() => {});
     rpc('cc_customer_terms', { p_customer_no: null })
       .then((t) => setTerms(Object.fromEntries((t?.terms ?? []).map((x) => [x.customer_no, x])))).catch(() => {});
   }, []);
@@ -31,11 +35,12 @@ export default function CustomerList() {
   const shown = useMemo(() => {
     const list = (data?.rows ?? []).filter((r) => (!term || [r.name, r.customer_no, r.city, r.phone].some((v) => v?.toLowerCase().includes(term)))
       && (!group || r.group === group)
+      && (!method || (method === 'none' ? !profiles?.[r.customer_no]?.pay_method : profiles?.[r.customer_no]?.pay_method === method))
       && (only === 'all' || (only === 'owing' && Math.abs(Number(r.balance)) >= 0.005) || (only === 'overdue' && Number(r.overdue) >= 0.005)
         || (only === 'noterms' && noPeriod(r))));
     const val = (r) => (sort.key === 'name' ? r.name.toLowerCase() : ['last_invoice', 'last_receipt'].includes(sort.key) ? r[sort.key] ?? '' : Number(r[sort.key] ?? 0));
     return [...list].sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * sort.dir || a.name.localeCompare(b.name));
-  }, [data, term, group, only, sort, terms]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, term, group, only, sort, terms, method, profiles]);   // eslint-disable-line react-hooks/exhaustive-deps
   const by = (key) => setSort((s) => ({ key, dir: s.key === key ? -s.dir : key === 'name' ? 1 : -1 }));
   const arrow = (key) => (sort.key === key ? (sort.dir > 0 ? ' ▲' : ' ▼') : '');
   const sum = (k) => shown.reduce((a, r) => a + Number(r[k] ?? 0), 0);
@@ -72,6 +77,13 @@ export default function CustomerList() {
                 <option value="">All groups</option>{groups.map((g) => <option key={g} value={g}>{g}</option>)}
               </select>
             )}
+            {profiles && (
+              <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
+                <option value="">Every payment method</option>
+                {PAY_METHODS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                <option value="none">Not set</option>
+              </select>
+            )}
             <div className="tabs" role="tablist" aria-label="Show">
               {[['owing', 'With a balance'], ['overdue', 'Overdue'], ['all', 'All'], ...(terms != null ? [['noterms', 'No credit period']] : [])].map(([k, l]) => (
                 <button key={k} type="button" role="tab" aria-selected={only === k} className={`tab${only === k ? ' on' : ''}`} onClick={() => setOnly(k)}>{l} ({counts[k]})</button>
@@ -87,7 +99,7 @@ export default function CustomerList() {
               <table className="table customers-table">
                 <thead><tr>
                   <th><button type="button" className="th-sort" onClick={() => by('name')}>Customer{arrow('name')}</button></th>
-                  <th>Group</th><th>{terms != null ? 'Credit terms' : 'Terms'}</th>
+                  <th>Group</th><th>{terms != null ? 'Credit terms' : 'Terms'}</th>{profiles && <th>Pays by</th>}
                   <th className="num"><button type="button" className="th-sort" onClick={() => by('balance')}>Balance{arrow('balance')}</button></th>
                   <th className="num"><button type="button" className="th-sort" onClick={() => by('overdue')}>Overdue{arrow('overdue')}</button></th>
                   <th><button type="button" className="th-sort" onClick={() => by('last_invoice')}>Last invoice{arrow('last_invoice')}</button></th>
@@ -96,18 +108,20 @@ export default function CustomerList() {
                 <tbody>{shown.map((r) => (
                   <tr key={r.customer_no} className="click" onClick={() => nav(`/customer/${encodeURIComponent(r.customer_no)}`)}>
                     <td><Link to={`/customer/${encodeURIComponent(r.customer_no)}`} onClick={(e) => e.stopPropagation()}>{r.name}</Link>
-                      <div className="muted small">{[r.customer_no, r.city, r.phone].filter(Boolean).join(' · ')}{r.incomplete ? ' · history incomplete' : ''}{!r.in_list ? ' · not in the customer list' : ''}</div></td>
+                      <div className="muted small">{[r.customer_no, r.city, r.phone].filter(Boolean).join(' · ')}{r.incomplete ? ' · history incomplete' : ''}{!r.in_list ? ' · not in the customer list' : ''}</div>
+                      {profiles?.[r.customer_no]?.is_staff && <span className="pill staff">Staff</span>}</td>
                     <td>{r.group ?? '—'}</td>
                     <td>{terms == null ? (r.terms ?? '—') : terms[r.customer_no]
                       ? <>{terms[r.customer_no].terms}{terms[r.customer_no].min_days == null && <div className="muted small">no fixed days</div>}</>
                       : <span className="muted">None{r.terms ? <div className="small">BC: {r.terms}</div> : ''}</span>}</td>
+                    {profiles && <td>{payMethodLabel(profiles[r.customer_no]?.pay_method) ?? <span className="muted">–</span>}</td>}
                     <td className="num strong">{Math.abs(Number(r.balance)) < 0.005 ? '–' : lkr(r.balance)}</td>
                     <td className={`num${Number(r.overdue) >= 0.005 ? ' late' : ' zero'}`}>{Number(r.overdue) >= 0.005 ? lkr(r.overdue) : '–'}</td>
                     <td>{fmtDate(r.last_invoice)}</td>
                     <td>{fmtDate(r.last_receipt)}</td>
                   </tr>
                 ))}</tbody>
-                <tfoot><tr><td>Total ({shown.length})</td><td /><td /><td className="num">{lkr(sum('balance'))}</td><td className="num">{lkr(sum('overdue'))}</td><td /><td /></tr></tfoot>
+                <tfoot><tr><td>Total ({shown.length})</td><td /><td />{profiles && <td />}<td className="num">{lkr(sum('balance'))}</td><td className="num">{lkr(sum('overdue'))}</td><td /><td /></tr></tfoot>
               </table>
             </div>
           )}

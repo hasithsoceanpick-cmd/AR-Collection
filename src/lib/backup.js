@@ -62,6 +62,7 @@ export async function takeBackup(progress = () => {}) {
   const arDisputes = await step('AR follow-up disputes', () => read('ar_disputes'));
   const arLog = await step('AR follow-up log', () => read('ar_log'));
   const arNotes = await step('AR follow-up notes', () => read('ar_notes'));
+  const custProfile = await step('customer payment methods and staff accounts', () => read('customer_profile', 'customer_no'));
   const evSeen = new Set(events.rows.map((e) => e.id));
   const history = [...events.rows, ...(parked.events ?? []).filter((e) => !evSeen.has(e.id))].sort((a, b) => a.id - b.id);
 
@@ -140,7 +141,9 @@ export async function takeBackup(progress = () => {}) {
   raw('AR promises', arPromises, { 'Logged by': (p) => name(p.created_by), 'Owner then': (p) => (p.owner_id ? name(p.owner_id) : null), 'CC no': (p) => ccRef(p.collection_id) });
   raw('AR disputes', arDisputes, { 'Opened by': (d) => name(d.opened_by), 'Resolved by': (d) => (d.resolved_by ? name(d.resolved_by) : null) });
   raw('AR log', arLog, { Who: (l) => (l.actor ? name(l.actor) : null) });
-  raw('AR notes', arNotes, { 'Written by': (n) => name(n.created_by), 'Owner then': (n) => (n.owner_id ? name(n.owner_id) : null) });
+  raw('AR notes', arNotes, { 'Written by': (n) => name(n.created_by), 'Owner then': (n) => (n.owner_id ? name(n.owner_id) : null),
+    'Ticked off by': (n) => (n.cleared_by ? name(n.cleared_by) : null) });
+  raw('Customer profile', custProfile, { 'Set by': (p) => (p.updated_by ? name(p.updated_by) : null) });
   const allKeys = receipts.length ? [...new Set(receipts.flatMap((r) => Object.keys(r)))] : [];
   add('Receipts (all fields)', allKeys, receipts.map((r) => allKeys.map((k) => cell(r[k]))), col.error);
 

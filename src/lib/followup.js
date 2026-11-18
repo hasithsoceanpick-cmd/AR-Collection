@@ -33,6 +33,14 @@ export const PROMISE = {
   cancelled: { label: 'Cancelled', tone: 'muted' },
 };
 export const ACTIVE = ['open', 'due_today', 'grace'];
+// how a customer usually pays (set by finance on the customer page); a promise defaults to the matching method
+export const PAY_METHODS = [
+  { key: 'cheque', label: 'Cheque', promise: 'cheque_pickup' }, { key: 'transfer', label: 'Bank transfer', promise: 'transfer' },
+  { key: 'cash', label: 'Cash', promise: 'cash' }, { key: 'card', label: 'Card', promise: 'card' },
+  { key: 'payhere', label: 'PayHere (web)', promise: 'card' }, { key: 'salary', label: 'Salary deduction', promise: null },
+];
+export const payMethodLabel = (k) => PAY_METHODS.find((x) => x.key === k)?.label ?? null;
+export const promiseMethodFor = (k) => PAY_METHODS.find((x) => x.key === k)?.promise ?? '';
 
 const find = (list, k) => list.find((x) => x.key === k)?.label ?? k;
 export const channelLabel = (k) => find(CHANNELS, k);
