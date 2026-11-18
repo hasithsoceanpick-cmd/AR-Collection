@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { IS_DEMO, switchMode, rpc } from '../lib/supabase';
+import { IS_DEMO, switchMode, openAnalysis, rpc } from '../lib/supabase';
 import Notifications from './Notifications';
 import InstallButton from './InstallButton';
 import GlobalSearch from './GlobalSearch';
@@ -68,6 +68,17 @@ function ViewAs() {
   );
 }
 
+// The Analysis workspace's menu (finance and management).
+const ANALYSIS = [
+  { to: '/analysis', label: 'Overview', short: 'Overview', icon: 'chart', end: true, win: true },
+  { to: '/analysis/customers', label: 'Customers', short: 'Customers', icon: 'people', also: ['/analysis/customer/'], win: true },
+  { to: '/analysis/skus', label: 'SKUs', short: 'SKUs', icon: 'box', also: ['/analysis/sku/'], win: true },
+  { to: '/analysis/forecast', label: 'Cash forecast', short: 'Cash', icon: 'bank' },
+  { to: '/analysis/watchlists', label: 'Watchlists', short: 'Watch', icon: 'today' },
+  { to: '/analysis/uploads', label: 'Uploads', short: 'Uploads', icon: 'upload' },
+];
+const anOn = (l, path) => (l.end ? path === l.to || path === `${l.to}/` : path === l.to || path.startsWith(`${l.to}/`) || (l.also ?? []).some((a) => path.startsWith(a)));
+
 const badge = (n) => (n > 0 ? <span className="nav-badge" aria-label={`${n} waiting`}>{n > 99 ? '99+' : n}</span> : null);
 
 // A section's tabs, and its "New" menu where it has one.
@@ -100,6 +111,9 @@ export default function Layout() {
   const sales = role === 'sales';
   const unread = useChatUnread();
   const loc = useLocation();
+  const navigate = useNavigate();
+  const canAnalysis = fin || role === 'executive';
+  const inAnalysis = canAnalysis && (loc.pathname === '/analysis' || loc.pathname.startsWith('/analysis/'));
   const [today, setToday] = useState(null);
   const last = useRef(0);
 
@@ -133,7 +147,7 @@ export default function Layout() {
   const links = fin ? [] : navLinks(role, isAdmin);
 
   return (
-    <div className={`shell${fin ? ' fin' : ''}${IS_DEMO ? ' is-demo' : ''}`}>
+    <div className={`shell${fin || inAnalysis ? ' fin' : ''}${IS_DEMO ? ' is-demo' : ''}${inAnalysis ? ' is-analysis' : ''}`}>
       <header className="topbar">
         <Link className="brand" to="/" aria-label="Collections, Round Island: home">
           <span className="brand-bars" aria-hidden="true"><i /><i /><i /></span>
@@ -143,8 +157,13 @@ export default function Layout() {
         {fin && <UploadMenu files={today?.files} />}
         <InstallButton />
         <div className="modeswitch" role="group" aria-label="Section">
-          <button className={IS_DEMO ? '' : 'on'} aria-pressed={!IS_DEMO} onClick={() => IS_DEMO && switchMode(false)}>Live</button>
+          <button className={IS_DEMO || inAnalysis ? '' : 'on'} aria-pressed={!IS_DEMO && !inAnalysis}
+            onClick={() => { if (IS_DEMO) switchMode(false); else if (inAnalysis) navigate('/'); }}>Live</button>
           <button className={IS_DEMO ? 'on' : ''} aria-pressed={IS_DEMO} onClick={() => !IS_DEMO && switchMode(true)}>Demo</button>
+          {canAnalysis && (
+            <button className={inAnalysis && !IS_DEMO ? 'on' : ''} aria-pressed={inAnalysis && !IS_DEMO}
+              onClick={() => { if (IS_DEMO) openAnalysis(); else if (!inAnalysis) navigate('/analysis'); }}>Analysis</button>
+          )}
         </div>
         {isAdmin && <ViewAs />}
         {fin && (
@@ -171,8 +190,16 @@ export default function Layout() {
           <strong>Demo</strong> September 2026 data and practice scenarios. Anything you do here stays in the demo; live is never touched.
         </div>
       )}
-      <nav className="sidenav" aria-label="Main">
-        {fin ? (<>
+      <nav className="sidenav" aria-label={inAnalysis ? 'Analysis' : 'Main'}>
+        {inAnalysis ? ANALYSIS.map((l) => {
+          const on = anOn(l, loc.pathname);
+          const win = new URLSearchParams(loc.search).get('to'); // the chosen 12 months go with you between pages
+          return (
+            <Link key={l.to} to={l.win && win ? `${l.to}?to=${win}` : l.to} className={`${on ? 'active ' : ''}nav-main nav-sec`} aria-current={on ? 'page' : undefined}>
+              <Icon name={l.icon} /><span className="nav-label"><span className="nav-long">{l.label}</span><span className="nav-short">{l.short}</span></span>
+            </Link>
+          );
+        }) : fin ? (<>
           {sections.map((s, i) => {
             const on = here?.section.key === s.key;
             return (
@@ -195,7 +222,7 @@ export default function Layout() {
         </>)}
       </nav>
       <main className="content">
-        {here && <SectionTabs section={here.section} path={loc.pathname} today={today} />}
+        {here && !inAnalysis && <SectionTabs section={here.section} path={loc.pathname} today={today} />}
         <Outlet context={{ today, reloadToday: loadToday }} />
       </main>
     </div>

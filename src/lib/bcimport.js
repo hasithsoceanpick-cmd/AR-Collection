@@ -251,6 +251,61 @@ export async function parseDetailedCustLedger(file) {
   return out;
 }
 
+// ---------- Analysis: BC Items and Item Ledger Entries ----------
+const ITEM_COLUMNS = { item_no: ['no', 'itemno'], description: ['description'], inv_posting_group: ['inventorypostinggroup'],
+  base_uom: ['baseunitofmeasure'], unit_price: ['unitprice'] };
+const ITEM_REQUIRED = { item_no: 'No.', description: 'Description' };
+// Items (BC → Items → Open in Excel).
+export async function parseItems(file) {
+  const found = findSheet(await readAllSheets(file), ITEM_COLUMNS, ITEM_REQUIRED);
+  if (!found) throw new Error(missingMessage('Items', ITEM_REQUIRED));
+  const { rows, h } = found;
+  const get = (row, k) => (h.map[k] === undefined ? null : row[h.map[k]]);
+  const out = [];
+  for (const row of rows.slice(h.row + 1)) {
+    const no = toText(get(row, 'item_no'));
+    if (!no) continue;
+    out.push({ item_no: no, description: toText(get(row, 'description')), inv_posting_group: toText(get(row, 'inv_posting_group')),
+      base_uom: toText(get(row, 'base_uom')), unit_price: toNumber(get(row, 'unit_price')) });
+  }
+  if (!out.length) throw new Error('The file has the right columns but no items in it.');
+  if (h.map.base_uom === undefined) out.warning = 'This export has no Base Unit of Measure column, so every item is counted in kg. Add the column in BC (Personalize) and upload again if some items are sold in other units.';
+  return out;
+}
+
+const ILE_COLUMNS = {
+  entry_no: ['entryno'], posting_date: ['postingdate'], entry_type: ['entrytype'], document_no: ['documentno'], item_no: ['itemno'],
+  customer_no: ['sourceno'], quantity: ['quantity'], sales_amount: ['salesamountactual'], uom_code: ['unitofmeasurecode'],
+  location_code: ['locationcode'], description: ['itemdescription', 'description'],
+};
+const ILE_REQUIRED = { entry_no: 'Entry No.', posting_date: 'Posting Date', item_no: 'Item No.', customer_no: 'Source No.', quantity: 'Quantity',
+  sales_amount: 'Sales Amount (Actual)' };
+// Item Ledger Entries (BC → Item Ledger Entries, Entry Type = Sale → Open in Excel).
+export async function parseItemLedger(file) {
+  const found = findSheet(await readAllSheets(file), ILE_COLUMNS, ILE_REQUIRED);
+  if (!found) {
+    throw new Error(`${missingMessage('Item Ledger Entries', ILE_REQUIRED)} Source No. (the customer) and Sales Amount (Actual) are often hidden: add them with Personalize first.`);
+  }
+  const { rows, h } = found;
+  const get = (row, k) => (h.map[k] === undefined ? null : row[h.map[k]]);
+  const out = [];
+  for (const row of rows.slice(h.row + 1)) {
+    const entry = toNumber(get(row, 'entry_no'));
+    if (!entry) continue;
+    out.push({
+      entry_no: entry, posting_date: toISODate(get(row, 'posting_date')), entry_type: toText(get(row, 'entry_type')) || 'Sale',
+      document_no: toText(get(row, 'document_no')), item_no: toText(get(row, 'item_no')), customer_no: toText(get(row, 'customer_no')),
+      quantity: toNumber(get(row, 'quantity')), sales_amount: toNumber(get(row, 'sales_amount')) ?? 0, uom_code: toText(get(row, 'uom_code')),
+      location_code: toText(get(row, 'location_code')), description: toText(get(row, 'description')),
+    });
+  }
+  if (!out.length) throw new Error('The file has the right columns but no entries in it.');
+  const dates = out.map((r) => r.posting_date).filter(Boolean).sort();
+  out.first = dates[0] ?? null; out.last = dates.at(-1) ?? null;
+  out.sales = out.filter((r) => r.entry_type.toLowerCase() === 'sale').length;
+  return out;
+}
+
 // Supabase returns at most 1,000 rows per request; page through larger tables.
 export async function fetchAll(query) {
   const size = 1000;

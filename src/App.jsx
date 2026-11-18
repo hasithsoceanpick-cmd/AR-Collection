@@ -39,6 +39,14 @@ import FollowUp from './pages/FollowUp';
 import FollowUpPromises from './pages/FollowUpPromises';
 import FollowUpOwners from './pages/FollowUpOwners';
 import FollowUpNotes from './pages/FollowUpNotes';
+import AnOverview from './pages/analysis/AnOverview';
+import AnCustomers from './pages/analysis/AnCustomers';
+import AnCustomer from './pages/analysis/AnCustomer';
+import AnSkus from './pages/analysis/AnSkus';
+import AnSku from './pages/analysis/AnSku';
+import AnForecast from './pages/analysis/AnForecast';
+import AnWatchlists from './pages/analysis/AnWatchlists';
+import AnUploads from './pages/analysis/AnUploads';
 
 function Gate() {
   const { session, loading, role, isAdmin } = useAuth();
@@ -84,6 +92,16 @@ function Gate() {
         {['sales', 'finance', 'executive'].includes(role) && <Route path="customer-list" element={<CustomerList />} />}
         {['sales', 'finance', 'executive'].includes(role) && <Route path="customer/:no" element={<CustomerPage />} />}
         {(role === 'driver' || role === 'finance' || role === 'executive') && <Route path="deposits" element={<Deposits />} />}
+        {(role === 'finance' || role === 'executive') && (<>
+          <Route path="analysis" element={<AnOverview />} />
+          <Route path="analysis/customers" element={<AnCustomers />} />
+          <Route path="analysis/customer/:no" element={<AnCustomer />} />
+          <Route path="analysis/skus" element={<AnSkus />} />
+          <Route path="analysis/sku/:item" element={<AnSku />} />
+          <Route path="analysis/forecast" element={<AnForecast />} />
+          <Route path="analysis/watchlists" element={<AnWatchlists />} />
+          <Route path="analysis/uploads" element={<AnUploads />} />
+        </>)}
         <Route path="reports" element={<Reports />} />
         {role === 'finance' && <Route path="bank" element={<Bank />} />}
         <Route path="more" element={<More />} />

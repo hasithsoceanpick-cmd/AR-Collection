@@ -55,3 +55,9 @@ export async function uploadMine(blob, kind, ext, contentType) {
 export const COLLECTION_SELECT = `*,
   creator:profiles!collections_created_by_fkey(full_name,email),
   driver:profiles!collections_driver_id_fkey(full_name,email)`;
+
+// Analysis reads live data: from Demo, switch to live first.
+export function openAnalysis(path = '/analysis') {
+  localStorage.setItem(MODE_KEY, 'live');
+  window.location.assign(path);
+}
