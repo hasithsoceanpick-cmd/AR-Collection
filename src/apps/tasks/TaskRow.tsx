@@ -1,0 +1,146 @@
+import type { MouseEvent } from 'react';
+import { useTaskApp } from './store';
+import type { Task, UndatedTask } from './types';
+import { daysBetween, fmtDay, fmtDue, today } from '../../lib/dates';
+import { firstName } from '../../lib/labels';
+import { finished, isDaily, isLate, repeatLabel, statusLabel } from './labels';
+import MovedBadge from './DueHistory';
+import Avatar from '../../platform/Avatar';
+import AssignedBy from './AssignedBy';
+import OutsideWith from './OutsideWith';
+
+export default function TaskRow({ t, showWho }: { t: Task; showWho: boolean }) {
+  const { openTask, updateTask, person, me, toast, helpersOf, helperOnly, progressOf, canCheck, checkerOf, marks, updateDue, updatePosted } = useTaskApp();
+  const project = t.nature === 'project';
+  const helping = helperOnly(t);
+  const helpers = helpersOf(t.id);
+  const prog = progressOf(t.id);
+  const done = t.status === 'done';
+  const review = t.status === 'review';
+  const overdue = isLate(t, today());
+  const isNew = !t.acknowledged_at && t.assignee_id === me.id;
+  const unseen = !t.acknowledged_at && t.assignee_id !== me.id && t.created_by === me.id;
+  const who = person(t.assignee_id);
+
+  async function toggle(e: MouseEvent) {
+    e.stopPropagation();
+    if (helping) return toast(`Only ${firstName(who?.full_name ?? 'the owner')} can mark this done.`, 'error');
+    if (review && !canCheck(t)) return toast(`Waiting for ${firstName(checkerOf(t)?.full_name ?? 'the checker')} to sign it off.`);
+    const r = await updateTask(t.id, { status: done ? 'todo' : 'done' });
+    if (!r) return;
+    if (r.status === 'review') toast(`Sent to ${firstName(checkerOf(r)?.full_name ?? 'the checker')} for sign-off`);
+    else if (done) toast('Reopened');
+    else if (review) toast(t.repeat && !t.next_task_id ? 'Signed off — the next one has been created' : 'Signed off');
+    else toast(t.repeat && !t.next_task_id ? 'Done — the next one has been created' : 'Marked done');
+  }
+
+  return (
+    <div className={`task-row ${overdue ? 'overdue' : ''} ${done ? 'done' : ''} ${review ? 'review' : ''} ${isNew ? 'is-new' : ''} ${t.escalated_at && !finished(t) ? 'escalated' : ''}`} onClick={() => openTask(t.id)}>
+      <button className={`check ${done ? 'on' : ''} ${review ? 'half' : ''} ${helping ? 'locked' : ''}`} onClick={toggle}
+        aria-label={helping ? 'Only the owner can mark this done' : done ? 'Reopen' : review ? (canCheck(t) ? 'Sign off' : 'Waiting for sign-off') : 'Mark done'}
+        title={review ? (canCheck(t) ? 'Sign it off' : 'Waiting for sign-off') : undefined}>
+        <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      <div className="tr-main">
+        <AssignedBy t={t} />
+        <OutsideWith t={t} />
+        <div className="tr-title">{t.title}</div>
+        <div className="tr-meta">
+          {marks(t.id).pinned && <span className="pin-star" title="Pinned">★</span>}
+          {project && <span className="pill project" title="A project: one big task with dated stages">◆ Project</span>}
+          {project && t.health && t.health !== 'on_track' && !finished(t) && (
+            <span className={`pill health ${t.health}`} title={t.health_note}>{t.health === 'at_risk' ? 'At risk' : 'Off track'}</span>
+          )}
+          {isNew && <span className="pill new" title="Someone gave you this — open it and press Got it">New</span>}
+          {t.escalated_at && !finished(t) && <span className="pill esc" title="3+ days past its deadline: the manager has been told">Escalated</span>}
+          {review && <span className="pill s-review">{canCheck(t) ? 'Sign off' : 'Waiting for sign-off'}</span>}
+          {unseen && <span className="pill unseen" title={`${firstName(who?.full_name ?? '')} hasn't opened it yet`}>Not opened yet</span>}
+          {t.priority === 'high' && <span className="pill high">High</span>}
+          {(t.status === 'doing' || t.status === 'waiting') && <span className={`pill s-${t.status}`}>{statusLabel(t.status)}</span>}
+          {t.priority === 'low' && <span className="pill low">Low</span>}
+          {prog && <span className={`pill prog ${prog.done === prog.total ? 'full' : ''}`} title={project ? 'Stages done' : 'Checklist'}>{project ? '◆' : '☑'} {prog.done}/{prog.total}</span>}
+          {helping && <span className="pill helping">Helping</span>}
+          {t.daily_update && !finished(t) && (updateDue(t)
+            ? <span className="pill update-due" title={t.assignee_id === me.id ? "Write today's daily update in the task" : "Today's daily update isn't in yet"}>Update due</span>
+            : <span className="pill daily-pill" title="Needs a short daily update every weekday">{updatePosted(t.id, today()) ? '✓ Updated today' : 'Daily update'}</span>)}
+          {t.repeat && <span className="pill repeat" title={isDaily(t.repeat) ? 'Repeats: a new one appears each morning' : 'Repeats: the next one is created when this is done'}>⟳ {repeatLabel(t.repeat)}</span>}
+          <MovedBadge task={t} />
+          {t.notes && <span className="muted" title="Has notes">≡</span>}
+        </div>
+      </div>
+      {(showWho || helping) && (
+        <span className="tr-who">
+          <Avatar p={who} size={22} />
+          <span className="hide-sm">{firstName(who?.full_name ?? '')}</span>
+        </span>
+      )}
+      {helpers.length > 0 && (
+        <span className="tr-helpers" title={`Helpers: ${helpers.map(h => person(h)?.full_name ?? '').join(', ')}`}>
+          {helpers.slice(0, 3).map(h => <Avatar key={h} p={person(h)} size={18} />)}
+          {helpers.length > 3 && <span className="more">+{helpers.length - 3}</span>}
+        </span>
+      )}
+      <span className={`tr-due ${overdue ? 'danger' : ''}`}>
+        {!finished(t) && t.due_moves > 0 && t.original_due && t.original_due !== t.due_date && (
+          <s className="was" title="First deadline">{fmtDue(t.original_due)}</s>
+        )}
+        {finished(t) ? '' : overdue ? `${fmtDue(t.due_date)} · ${daysBetween(t.due_date, today())}d late` : fmtDue(t.due_date)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A task with no date: on No date (yours, or one moved there), or given without a deadline and waiting for its owner
+ * to pick one on Got it.
+ */
+export function UndatedRow({ t, showWho = true }: { t: UndatedTask; showWho?: boolean }) {
+  const { openTask, person, me, helperOnly, updateTask, toast, progressOf } = useTaskApp();
+  const who = person(t.assignee_id);
+  const mine = t.assignee_id === me.id;
+  const name = mine ? 'You' : firstName(who?.full_name ?? '');
+  // given to someone and not accepted yet: they pick the date when they press Got it
+  const waiting = !t.acknowledged_at && t.created_by !== t.assignee_id;
+  const prog = progressOf(t.id);
+  async function finish(e: MouseEvent) {
+    e.stopPropagation();
+    const r = await updateTask(t.id, { status: 'done' });
+    if (r) toast(r.status === 'review' ? 'Sent for sign-off' : 'Marked done');
+  }
+  return (
+    <div className={`task-row undated ${waiting ? 'waiting-date' : ''}`} onClick={() => openTask(t.id)} role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter') openTask(t.id); }}>
+      {waiting || helperOnly(t)
+        ? <span className="check locked" aria-hidden title={waiting ? 'Waiting for a date' : 'Only the owner can mark this done'} />
+        : (
+          <button className="check" onClick={finish} aria-label="Mark done" title="Mark done">
+            <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        )}
+      <div className="tr-main">
+        <AssignedBy t={t} />
+        <OutsideWith t={t} />
+        <div className="tr-title">{t.title}</div>
+        <div className="tr-meta">
+          {waiting ? (
+            <span className="pill no-date" title={`${name} pick${mine ? '' : 's'} the date when ${mine ? 'you press' : 'they press'} Got it`}>
+              No date yet{t.latest_by ? ` · by ${fmtDay(t.latest_by)}` : ''}
+            </span>
+          ) : <span className="pill no-date" title="Drag it onto the calendar to give it a date">No date</span>}
+          {waiting && !mine && <span className="pill unseen">Not opened yet</span>}
+          {(t.status === 'doing' || t.status === 'waiting') && <span className={`pill s-${t.status}`}>{statusLabel(t.status)}</span>}
+          {t.priority === 'high' && <span className="pill high">High</span>}
+          {prog && <span className="pill prog">☑ {prog.done}/{prog.total}</span>}
+          {t.notes && <span className="muted" title="Has notes">≡</span>}
+        </div>
+      </div>
+      {showWho && (
+        <span className="tr-who">
+          <Avatar p={who} size={22} />
+          <span className="hide-sm">{firstName(who?.full_name ?? '')}</span>
+        </span>
+      )}
+      <span className="tr-due muted">{waiting ? `${name} pick${mine ? '' : 's'}` : t.due_moves > 0 && t.original_due ? <s className="was" title="First deadline">{fmtDue(t.original_due)}</s> : ''}</span>
+    </div>
+  );
+}

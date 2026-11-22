@@ -1,0 +1,233 @@
+export type Status = 'todo' | 'doing' | 'waiting' | 'review' | 'done';
+export type Priority = 'low' | 'normal' | 'high';
+export type Nature = 'task' | 'project';
+export type Health = 'on_track' | 'at_risk' | 'off_track';
+export type Repeat = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+
+export interface Task {
+  id: number;
+  department_id: string;
+  title: string;
+  notes: string;
+  assignee_id: string;
+  created_by: string | null;
+  status: Status;
+  priority: Priority;
+  due_date: string; // YYYY-MM-DD (see UndatedTask for work given without a deadline)
+  /** given without a deadline: the latest date its owner may pick (empty = any date) */
+  latest_by: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** the first deadline it was given, and how many times it has been moved */
+  original_due: string | null;
+  due_moves: number;
+  repeat: Repeat | null;
+  /** the series' first deadline, and which occurrence this is (the schedule is anchor + n × step) */
+  repeat_anchor: string | null;
+  repeat_n: number;
+  next_task_id: number | null;
+  /** first task of its repeating series (itself for the first one) */
+  series_id: number | null;
+  /** sign-off: needed when given by someone else (whoever gave it decides) */
+  needs_check: boolean;
+  /** when the owner finished it (sent for sign-off) */
+  submitted_at: string | null;
+  checked_by: string | null;
+  checked_at: string | null;
+  sent_back_n: number;
+  /** "Got it": when the owner first opened it (null = not yet) */
+  acknowledged_at: string | null;
+  /** early reminder N days before the deadline */
+  remind_days: number | null;
+  /** still not finished 3 days after the deadline: the managers were told (cleared when the deadline moves) */
+  escalated_at: string | null;
+  /** the owner writes a short "Daily update" every weekday while it's open */
+  daily_update: boolean;
+  /** first weekday an update is needed (set by the database) */
+  daily_update_from: string | null;
+  /** given to someone outside the app (no login); the owner follows up */
+  contact_id: number | null;
+  /** a project is one big task with dated stages (checklist steps with a date and a person) */
+  nature: Nature;
+  /** project status flag, set by the owner (or whoever gave it / a manager) */
+  health: Health | null;
+  health_note: string;
+  health_at: string | null;
+  health_by: string | null;
+}
+
+/**
+ * Work given without a deadline: its owner picks the date when they press Got it (it waits in their New tab until then).
+ * Everywhere else in the app works on dated tasks (`Task`); only the New tab, the task lists' "No date yet" group, the
+ * Who's on what board, the task panel and the Excel export handle these.
+ */
+export type UndatedTask = Omit<Task, 'due_date'> & { due_date: null };
+export type AnyTask = Task | UndatedTask;
+export const hasDate = (t: AnyTask): t is Task => t.due_date !== null;
+
+/** Someone without a login that work is given to — a bank officer, a supplier — for follow-up */
+export interface Contact {
+  id: number;
+  department_id: string;
+  name: string;
+  organisation: string;
+  phone: string;
+  email: string;
+  note: string;
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** My pin / follow marks on a task */
+export interface TaskFollow {
+  task_id: number;
+  user_id: string;
+  department_id: string;
+  pinned: boolean;
+  following: boolean;
+}
+
+export type ReminderRepeat = 'daily' | 'weekdays' | 'weekly' | 'monthly';
+export interface Reminder {
+  id: number;
+  department_id: string;
+  user_id: string;
+  created_by: string | null;
+  body: string;
+  remind_at: string;
+  repeat: ReminderRepeat | null;
+  task_id: number | null;
+  sent_at: string | null;
+  done_at: string | null;
+  created_at: string;
+}
+
+export interface TaskComment {
+  id: number;
+  task_id: number;
+  author_id: string;
+  body: string;
+  created_at: string;
+  /** set on a Daily update: the weekday it's for */
+  daily_for: string | null;
+}
+
+/** A line of work done outside the app, on the My output page */
+/** One focus slot of the focus timer (Pomodoro), recorded when it ended */
+export interface FocusSession {
+  id: number;
+  department_id: string;
+  user_id: string;
+  task_id: number | null;
+  started_at: string;
+  ended_at: string;
+  planned_min: number;
+  minutes: number;
+  completed: boolean;
+}
+
+export interface WorkLog {
+  id: number;
+  department_id: string;
+  user_id: string;
+  day: string;
+  body: string;
+  created_at: string;
+}
+
+export interface TaskActivity {
+  id: number;
+  task_id: number;
+  department_id: string;
+  actor_id: string | null;
+  kind: 'created' | 'status' | 'due_date' | 'assignee' | 'edited' | 'comment' | 'helper_added' | 'helper_removed' | 'step' | 'repeated'
+    | 'sent_back' | 'acknowledged' | 'daily_update' | 'health' | 'date_set';
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
+export interface TaskDraft {
+  title: string;
+  notes: string;
+  assignee_id: string;
+  status: Status;
+  priority: Priority;
+  /** empty = given without a deadline: the owner picks it (only for work given to someone else) */
+  due_date: string | null;
+  latest_by?: string | null;
+  repeat?: Repeat | null;
+  needs_check?: boolean;
+  remind_days?: number | null;
+  acknowledged_at?: string | null;
+  daily_update?: boolean;
+  contact_id?: number | null;
+  nature?: Nature;
+  health?: Health | null;
+  health_note?: string;
+}
+
+export interface TaskHelper {
+  task_id: number;
+  user_id: string;
+  department_id: string;
+  added_by: string | null;
+  created_at: string;
+}
+
+export interface ChecklistItem {
+  id: number;
+  task_id: number;
+  department_id: string;
+  body: string;
+  done: boolean;
+  position: number;
+  created_by: string | null;
+  done_by: string | null;
+  done_at: string | null;
+  created_at: string;
+  /** project stages: the date, and who does it (empty = the project owner) */
+  due_date: string | null;
+  assignee_id: string | null;
+}
+
+export interface TaskAttachment {
+  id: number;
+  task_id: number;
+  department_id: string;
+  kind: 'file' | 'link';
+  name: string;
+  url: string | null;
+  path: string | null;
+  size: number | null;
+  mime: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** A quick to-do for one day on the Today page — private to whoever wrote it */
+export interface MiniTask {
+  id: number;
+  department_id: string;
+  user_id: string;
+  day: string;        // YYYY-MM-DD
+  body: string;
+  done_at: string | null;
+  created_at: string;
+  /** given by someone else (empty or the person themselves = their own) */
+  created_by: string | null;
+}
+
+export interface TimeBlock {
+  id: number;
+  department_id: string;
+  user_id: string;
+  day: string;        // YYYY-MM-DD
+  start_min: number;  // minutes after midnight
+  end_min: number;
+  task_id: number | null;
+  title: string | null;
+  created_at: string;
+}

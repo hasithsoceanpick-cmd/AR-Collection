@@ -1,0 +1,80 @@
+import { supabase } from '../../supabase';
+import { downloadXlsx, xDate, type XSheet } from '../../platform/excel';
+import { today } from '../../lib/dates';
+import type { Profile } from '../../platform/types';
+import { finished, healthLabel, isLate, remindLabel, repeatLabel, statusLabel } from './labels';
+import { hasDate, type AnyTask, type TaskActivity } from './types';
+
+/**
+ * Download the tasks this person can see in the department as an Excel file:
+ * a Tasks sheet and a Deadline moves sheet. It doubles as a backup.
+ */
+export async function exportTasks(opts: {
+  deptName: string; deptId: string; tasks: AnyTask[];
+  person: (id: string | null | undefined) => Profile | undefined;
+  helpersOf: (id: number) => string[];
+  progressOf: (id: number) => { done: number; total: number } | null;
+  contactOf?: (id: number | null | undefined) => { name: string; organisation: string } | undefined;
+}) {
+  const { tasks, person, helpersOf, progressOf, contactOf } = opts;
+  const outside = (id: number | null) => { const c = contactOf?.(id); return c ? (c.organisation ? `${c.name} (${c.organisation})` : c.name) : ''; };
+  const name = (id: string | null | undefined) => person(id)?.full_name ?? '';
+  const td = today();
+  const sorted = [...tasks].sort((a, b) =>
+    Number(finished(a)) - Number(finished(b)) || (a.due_date ?? '').localeCompare(b.due_date ?? '') || a.id - b.id);
+
+  const taskSheet: XSheet = {
+    name: 'Tasks',
+    columns: [
+      { header: 'Task #', width: 8 }, { header: 'Title', width: 44 }, { header: 'Owner', width: 20 },
+      { header: 'Given to (outside the app)', width: 28 },
+      { header: 'Helpers', width: 24 }, { header: 'Status', width: 20 }, { header: 'Priority', width: 10 },
+      { header: 'Deadline', width: 13 }, { header: 'First deadline', width: 14 }, { header: 'Times moved', width: 12 },
+      { header: 'Overdue days', width: 13 }, { header: 'Repeats', width: 11 }, { header: 'Checklist', width: 10 },
+      { header: 'Assigned by', width: 20 }, { header: 'Created', width: 13 }, { header: 'Finished', width: 13 },
+      { header: 'Signed off by', width: 18 }, { header: 'Times sent back', width: 14 }, { header: 'Early reminder', width: 15 },
+      { header: 'Notes', width: 50 }, { header: 'Type', width: 9 }, { header: 'Project status', width: 14 },
+    ],
+    rows: sorted.map(t => {
+      const p = progressOf(t.id);
+      const late = hasDate(t) && isLate(t, td)
+        ? Math.round((Date.parse(td) - Date.parse(t.due_date)) / 86400000) : null;
+      // given without a deadline and not dated yet: the owner picks it
+      const status = hasDate(t) ? statusLabel(t.status)
+        : !t.acknowledged_at && t.created_by !== t.assignee_id
+          ? `No date yet — owner picks${t.latest_by ? ` (by ${t.latest_by.split('-').reverse().join('/')})` : ''}`
+          : `${statusLabel(t.status)} — no date`;
+      return [
+        t.id, t.title, name(t.assignee_id), outside(t.contact_id), helpersOf(t.id).map(name).join(', '), status,
+        t.priority[0].toUpperCase() + t.priority.slice(1), xDate(t.due_date), xDate(t.original_due ?? t.due_date),
+        t.due_moves ?? 0, late, repeatLabel(t.repeat), p ? `${p.done}/${p.total}` : '', name(t.created_by),
+        xDate(t.created_at), xDate(t.submitted_at ?? t.completed_at), name(t.checked_by), t.sent_back_n || null,
+        remindLabel(t.remind_days), t.notes, t.nature === 'project' ? 'Project' : 'Task',
+        t.nature === 'project' && t.health ? healthLabel(t.health) : '',
+      ];
+    }),
+  };
+
+  // deadline moves for these tasks, in batches
+  const ids = sorted.filter(t => t.due_moves > 0).map(t => t.id);
+  const moves: TaskActivity[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase.from('task_activity').select('*').eq('kind', 'due_date').in('task_id', ids.slice(i, i + 200));
+    moves.push(...((data as TaskActivity[]) ?? []));
+  }
+  const byId = new Map(sorted.map(t => [t.id, t]));
+  moves.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const moveSheet: XSheet = {
+    name: 'Deadline moves',
+    columns: [
+      { header: 'Task #', width: 8 }, { header: 'Title', width: 44 }, { header: 'Owner', width: 20 },
+      { header: 'Moved on', width: 13 }, { header: 'Moved by', width: 20 }, { header: 'From', width: 13 }, { header: 'To', width: 13 },
+    ],
+    rows: moves.map(m => {
+      const t = byId.get(m.task_id);
+      return [m.task_id, t?.title ?? '', name(t?.assignee_id), xDate(m.created_at), name(m.actor_id), xDate(m.old_value), xDate(m.new_value)];
+    }),
+  };
+
+  await downloadXlsx(`${opts.deptName} tasks ${td}`, [taskSheet, moveSheet]);
+}

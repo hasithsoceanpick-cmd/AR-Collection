@@ -1,0 +1,393 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { supabase } from '../../supabase';
+import { usePlatform } from '../../platform/store';
+import { removeFiles } from '../../platform/files';
+import type { Profile } from '../../platform/types';
+import { hasDate, type AnyTask, type ChecklistItem, type Contact, type Task, type TaskDraft, type TaskFollow, type TaskHelper, type UndatedTask } from './types';
+import { isWeekday, prevWorkday, today } from '../../lib/dates';
+
+type DrawerState = { mode: 'edit'; id: number } | { mode: 'new'; defaults: Partial<TaskDraft> } | null;
+
+interface TasksStore {
+  /** I'm a member of the department being viewed (false when the admin visits another department) */
+  inDept: boolean;
+  /** manager or admin: sees everything in the department */
+  fullView: boolean;
+  /** manager, senior or admin: can look at other people's work */
+  isLead: boolean;
+  /** People whose work I can see and assign to (me first) */
+  team: Profile[];
+  canAssignTo: (id: string) => boolean;
+  /** dated tasks — everything the lists, Today, calendar and reports work on */
+  tasks: Task[];
+  /** work given without a deadline, still waiting for its owner to pick a date */
+  undated: UndatedTask[];
+  /** any task by id, dated or not */
+  findTask: (id: number) => AnyTask | undefined;
+  loaded: boolean;
+  refresh: () => Promise<void>;
+  createTask: (d: TaskDraft) => Promise<AnyTask | null>;
+  updateTask: (id: number, patch: Partial<TaskDraft>) => Promise<AnyTask | null>;
+  deleteTask: (id: number) => Promise<boolean>;
+  canDelete: (t: AnyTask) => boolean;
+  /** may I move this task to No date? (my own, work I gave, or as a manager; never projects, repeats or finished work) */
+  canUndate: (t: AnyTask) => boolean;
+  /** move several tasks to No date at once; returns how many moved */
+  undateTasks: (ids: number[]) => Promise<number>;
+  /** helpers per task id */
+  helpersOf: (taskId: number) => string[];
+  /** I'm only a helper on this task (can't change it, can't mark it done) */
+  helperOnly: (t: AnyTask) => boolean;
+  /** People I may add as helpers to this task (managers/seniors only) */
+  helperCandidates: (t: Pick<Task, 'assignee_id'>) => Profile[];
+  addHelper: (taskId: number, userId: string) => Promise<boolean>;
+  removeHelper: (taskId: number, userId: string) => Promise<boolean>;
+  /** May I sign this task off? (whoever gave it, a manager, the admin — never its owner) */
+  canCheck: (t: AnyTask) => boolean;
+  /** Who is asked to sign it off */
+  checkerOf: (t: AnyTask) => Profile | undefined;
+  /** "Got it": the owner has seen a task someone gave them (work given without a deadline needs the date they pick) */
+  acknowledge: (id: number, due?: string) => Promise<boolean>;
+  sendBack: (id: number, reason: string) => Promise<boolean>;
+  /** Given to me by someone else and I haven't pressed Got it yet: lives only in the New tab */
+  inInbox: (t: AnyTask) => boolean;
+  /** my New tab: dated ones first by deadline, then those waiting for my date */
+  inbox: AnyTask[];
+  /** my pin / follow marks */
+  marks: (taskId: number) => { pinned: boolean; following: boolean };
+  setMark: (taskId: number, patch: { pinned?: boolean; following?: boolean }) => Promise<void>;
+  /** Daily updates: has one been written for this task for that day (today or the last weekday)? */
+  updatePosted: (taskId: number, day: string) => boolean;
+  /** Needs today's daily update and hasn't got one yet */
+  updateDue: (t: AnyTask) => boolean;
+  /** the owner writes a Daily update (for today, or the last weekday) */
+  postUpdate: (taskId: number, body: string, day?: string) => Promise<boolean>;
+  /** people outside the app (this department's list, including ones taken off it) */
+  contacts: Contact[];
+  contactOf: (id: number | null | undefined) => Contact | undefined;
+  saveContact: (c: Partial<Contact> & { name: string }) => Promise<Contact | null>;
+  /** delete if no task mentions them, otherwise take them off the list */
+  removeContact: (id: number) => Promise<'deleted' | 'hidden' | null>;
+  /** a project's stages, by date */
+  stagesOf: (taskId: number) => ChecklistItem[];
+  /** who does a stage (its person, or the project owner) */
+  stageOwner: (s: ChecklistItem) => string | undefined;
+  /** open stages of open projects that are mine to do */
+  myStages: ChecklistItem[];
+  toggleStage: (s: ChecklistItem) => Promise<void>;
+  /** checklist progress per task id */
+  progressOf: (taskId: number) => { done: number; total: number } | null;
+  refreshChecklist: () => Promise<void>;
+  drawer: DrawerState;
+  openTask: (id: number) => void;
+  newTask: (defaults?: Partial<TaskDraft>) => void;
+  closeDrawer: () => void;
+}
+
+const Ctx = createContext<TasksStore | null>(null);
+export const useTasks = () => {
+  const s = useContext(Ctx);
+  if (!s) throw new Error('Tasks store missing');
+  return s;
+};
+
+const POLL_MS = 45_000;
+
+export function TasksProvider({ children }: { children: ReactNode }) {
+  const { me, isAdmin, dept, deptPeople, person, userHasApp, fail, toast, refreshNotices } = usePlatform();
+  const [all, setTasks] = useState<AnyTask[]>([]);
+  const tasks = useMemo(() => all.filter(hasDate), [all]);
+  const undated = useMemo(() => all.filter((t): t is UndatedTask => !hasDate(t)), [all]);
+  const findTask = useCallback((id: number) => all.find(t => t.id === id), [all]);
+  const [helpers, setHelpers] = useState<TaskHelper[]>([]);
+  const [steps, setSteps] = useState<ChecklistItem[]>([]);
+  const [follows, setFollows] = useState<TaskFollow[]>([]);
+  const [posted, setPosted] = useState<Set<string>>(new Set());
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+
+  const deptId = dept!.id;
+  const inDept = me.department_id === deptId;
+  const myRole = inDept ? me.role : null;
+  const fullView = isAdmin || myRole === 'manager';
+  const isLead = fullView || myRole === 'senior';
+
+  const refreshChecklist = useCallback(async () => {
+    const { data } = await supabase.from('task_checklist').select('*').eq('department_id', deptId);
+    if (data) setSteps(data as ChecklistItem[]);
+  }, [deptId]);
+
+  const refresh = useCallback(async () => {
+    const [t, h, f, u, c] = await Promise.all([
+      supabase.from('tasks').select('*').eq('department_id', deptId).order('due_date').order('id'),
+      supabase.from('task_helpers').select('*').eq('department_id', deptId),
+      supabase.from('task_follows').select('*').eq('user_id', me.id),
+      supabase.from('task_comments').select('task_id,daily_for').gte('daily_for', prevWorkday(today())),
+      supabase.from('task_contacts').select('*').eq('department_id', deptId).order('name'),
+    ]);
+    if (t.error) return fail(t.error);
+    setTasks(t.data as AnyTask[]);
+    if (h.data) setHelpers(h.data as TaskHelper[]);
+    if (f.data) setFollows(f.data as TaskFollow[]);
+    if (c.data) setContacts(c.data as Contact[]);
+    if (u.data) setPosted(new Set((u.data as { task_id: number; daily_for: string }[]).map(x => `${x.task_id}:${x.daily_for}`)));
+    setLoaded(true);
+    refreshChecklist();
+  }, [deptId, fail, refreshChecklist, me.id]);
+
+  useEffect(() => {
+    (async () => {
+      await supabase.rpc('run_deadline_check');
+      await refresh();
+      refreshNotices();
+    })();
+    const tick = () => { if (document.visibilityState === 'visible') refresh(); };
+    const timer = setInterval(tick, POLL_MS);
+    window.addEventListener('focus', tick);
+    return () => { clearInterval(timer); window.removeEventListener('focus', tick); };
+  }, [refresh, refreshNotices]);
+
+  const team = useMemo(() => {
+    const withApp = deptPeople.filter(p => userHasApp(p.id, 'tasks'));
+    let list: Profile[];
+    if (fullView) list = withApp;
+    else if (myRole === 'senior') list = withApp.filter(p => p.id === me.id || p.role === 'member');
+    else list = withApp.filter(p => p.id === me.id);
+    const order = { manager: 0, senior: 1, member: 2 } as const;
+    return [...list].sort((a, b) =>
+      (a.id === me.id ? -1 : b.id === me.id ? 1 : 0) ||
+      order[a.role] - order[b.role] ||
+      a.full_name.localeCompare(b.full_name));
+  }, [deptPeople, userHasApp, fullView, myRole, me.id]);
+
+  const canAssignTo = useCallback((id: string) => team.some(p => p.id === id), [team]);
+
+  const helpersByTask = useMemo(() => {
+    const m = new Map<number, string[]>();
+    for (const h of helpers) {
+      if (!m.has(h.task_id)) m.set(h.task_id, []);
+      m.get(h.task_id)!.push(h.user_id);
+    }
+    return m;
+  }, [helpers]);
+  const helpersOf = useCallback((id: number) => helpersByTask.get(id) ?? [], [helpersByTask]);
+
+  // Mirrors the database rule: owner, creator, managers, and seniors (for members' work) run a task.
+  const runsTask = useCallback((t: AnyTask) =>
+    fullView || t.assignee_id === me.id || t.created_by === me.id ||
+    (myRole === 'senior' && person(t.assignee_id)?.role === 'member'), [fullView, me.id, myRole, person]);
+  const helperOnly = useCallback((t: AnyTask) => !runsTask(t), [runsTask]);
+
+  const helperCandidates = useCallback((t: Pick<Task, 'assignee_id'>) => {
+    if (!isLead) return [];
+    return team.filter(p => p.id !== t.assignee_id);
+  }, [isLead, team]);
+
+  const addHelper = useCallback(async (taskId: number, userId: string) => {
+    const { data, error } = await supabase.from('task_helpers').insert({ task_id: taskId, user_id: userId }).select().single();
+    if (error) { fail(error); return false; }
+    setHelpers(hs => [...hs, data as TaskHelper]);
+    return true;
+  }, [fail]);
+
+  const removeHelper = useCallback(async (taskId: number, userId: string) => {
+    const { error, count } = await supabase.from('task_helpers').delete({ count: 'exact' })
+      .eq('task_id', taskId).eq('user_id', userId);
+    if (error || !count) { fail(error ?? new Error("You don't have permission to remove that helper.")); return false; }
+    setHelpers(hs => hs.filter(h => !(h.task_id === taskId && h.user_id === userId)));
+    return true;
+  }, [fail]);
+
+  const progress = useMemo(() => {
+    const m = new Map<number, { done: number; total: number }>();
+    for (const s of steps) {
+      const p = m.get(s.task_id) ?? { done: 0, total: 0 };
+      p.total += 1;
+      if (s.done) p.done += 1;
+      m.set(s.task_id, p);
+    }
+    return m;
+  }, [steps]);
+  const progressOf = useCallback((id: number) => progress.get(id) ?? null, [progress]);
+
+  // project stages
+  const taskMap = useMemo(() => new Map(tasks.map(t => [t.id, t])), [tasks]);
+  const stagesOf = useCallback((id: number) => steps.filter(s => s.task_id === id)
+    .sort((a, b) => a.position - b.position || a.id - b.id), [steps]);   // the owner's own order (they can move stages)
+  const stageOwner = useCallback((s: ChecklistItem) => s.assignee_id ?? taskMap.get(s.task_id)?.assignee_id, [taskMap]);
+  const myStages = useMemo(() => steps.filter(s => {
+    const t = taskMap.get(s.task_id);
+    return !!t && t.nature === 'project' && t.status !== 'done' && t.status !== 'review' && !s.done
+      && (s.assignee_id ?? t.assignee_id) === me.id;
+  }).sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999') || a.id - b.id), [steps, taskMap, me.id]);
+  const toggleStage = useCallback(async (s: ChecklistItem) => {
+    setSteps(xs => xs.map(x => (x.id === s.id ? { ...x, done: !s.done } : x)));
+    const { data, error } = await supabase.from('task_checklist').update({ done: !s.done }).eq('id', s.id).select().maybeSingle();
+    if (error || !data) { fail(error ?? new Error('You can only tick your own stages.')); refreshChecklist(); return; }
+    setSteps(xs => xs.map(x => (x.id === s.id ? data as ChecklistItem : x)));
+  }, [fail, refreshChecklist]);
+
+  const createTask = useCallback(async (d: TaskDraft) => {
+    const { data, error } = await supabase.from('tasks').insert(d).select().single();
+    if (error) { fail(error); return null; }
+    const t = data as AnyTask;
+    setTasks(ts => [...ts, t]);
+    return t;
+  }, [fail]);
+
+  const updateTask = useCallback(async (id: number, patch: Partial<TaskDraft>) => {
+    const prev = all;
+    setTasks(ts => ts.map(t => (t.id === id ? { ...t, ...patch } as AnyTask : t)));
+    const { data, error } = await supabase.from('tasks').update(patch).eq('id', id).select().maybeSingle();
+    if (error || !data) {
+      setTasks(prev);
+      fail(error ?? new Error("You don't have permission to change that task."));
+      return null;
+    }
+    const t = data as AnyTask;
+    setTasks(ts => ts.map(x => (x.id === id ? t : x)));
+    const was = prev.find(x => x.id === id);
+    // reassigned, or a repeating task finished (its next one was just created): reload the list
+    if (patch.assignee_id || (t.status === 'done' && was?.status !== 'done' && was?.repeat && !was.next_task_id)) refresh();
+    refreshNotices();
+    return t;
+  }, [all, fail, refreshNotices, refresh]);
+
+  const canDelete = useCallback((t: AnyTask) => fullView || t.created_by === me.id, [fullView, me.id]);
+
+  const inInbox = useCallback((t: AnyTask) =>
+    t.assignee_id === me.id && !t.acknowledged_at && t.created_by !== me.id && t.status !== 'done' && t.status !== 'review',
+  [me.id]);
+  const inbox = useMemo(() => all.filter(inInbox)
+    .sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999') || a.id - b.id), [all, inInbox]);
+
+  const marks = useCallback((id: number) => {
+    const f = follows.find(x => x.task_id === id);
+    return { pinned: !!f?.pinned, following: !!f?.following };
+  }, [follows]);
+  const setMark = useCallback(async (id: number, patch: { pinned?: boolean; following?: boolean }) => {
+    const had = follows.find(x => x.task_id === id);
+    const next = { pinned: patch.pinned ?? !!had?.pinned, following: patch.following ?? !!had?.following };
+    setFollows(fs => had ? fs.map(x => (x.task_id === id ? { ...x, ...next } : x))
+      : [...fs, { task_id: id, user_id: me.id, department_id: deptId, ...next }]);
+    const res = had
+      ? await supabase.from('task_follows').update(next).eq('task_id', id).eq('user_id', me.id)
+      : await supabase.from('task_follows').insert({ task_id: id, ...next });
+    if (res.error) { fail(res.error); refresh(); }
+  }, [follows, me.id, deptId, fail, refresh]);
+
+  const canCheck = useCallback((t: AnyTask) =>
+    t.assignee_id !== me.id && (isAdmin || (inDept && (t.created_by === me.id || myRole === 'manager'))),
+  [me.id, isAdmin, inDept, myRole]);
+
+  // mirrors the database: whoever made the task, or whoever may sign it off (the giver, a manager, the admin)
+  const canUndate = useCallback((t: AnyTask) =>
+    t.nature !== 'project' && !t.repeat && t.status !== 'done' && t.status !== 'review'
+    && (t.created_by === me.id || canCheck(t)), [me.id, canCheck]);
+  const undateTasks = useCallback(async (ids: number[]) => {
+    if (!ids.length) return 0;
+    const prev = all;
+    setTasks(ts => ts.map(t => (ids.includes(t.id) ? { ...t, due_date: null } as AnyTask : t)));
+    const { data, error } = await supabase.from('tasks').update({ due_date: null }).in('id', ids).select('id');
+    if (error) { setTasks(prev); fail(error); return 0; }
+    await refresh();
+    refreshNotices();
+    return (data ?? []).length;
+  }, [all, fail, refresh, refreshNotices]);
+
+  const checkerOf = useCallback((t: AnyTask) => {
+    const giver = person(t.created_by);
+    if (giver?.active) return giver;           // (in another department only when it's the admin)
+    return deptPeople.find(p => p.role === 'manager');
+  }, [person, deptPeople]);
+
+  const acknowledge = useCallback(async (id: number, due?: string) => {
+    const now = new Date().toISOString();
+    const t = all.find(x => x.id === id);
+    if (t && !t.due_date && !due) { toast('Pick a date first.', 'error'); return false; }
+    const patch = due ? { acknowledged_at: now, due_date: due } : { acknowledged_at: now };
+    const prev = all;
+    setTasks(ts => ts.map(x => (x.id === id ? { ...x, ...patch, acknowledged_at: x.acknowledged_at ?? now } as AnyTask : x)));
+    const { data, error } = await supabase.from('tasks').update(patch).eq('id', id).select().maybeSingle();
+    if (error) { setTasks(prev); fail(error); return false; }
+    if (data) setTasks(ts => ts.map(x => (x.id === id ? data as AnyTask : x)));
+    if (due) refreshNotices();
+    return true;
+  }, [all, fail, toast, refreshNotices]);
+
+  const sendBack = useCallback(async (id: number, reason: string) => {
+    const { error } = await supabase.rpc('tasks_send_back', { p_task: id, p_reason: reason });
+    if (error) { fail(error); return false; }
+    await refresh();
+    refreshNotices();
+    return true;
+  }, [fail, refresh, refreshNotices]);
+
+  const deleteTask = useCallback(async (id: number) => {
+    const t = all.find(x => x.id === id);
+    if (!t || !canDelete(t)) { toast('You can only delete tasks you created.', 'error'); return false; }
+    // stored files go first: once the task is gone, nobody may touch its folder any more
+    const { data: files } = await supabase.from('task_attachments').select('path').eq('task_id', id).eq('kind', 'file');
+    await removeFiles(((files ?? []) as { path: string }[]).map(f => f.path));
+    const { error, count } = await supabase.from('tasks').delete({ count: 'exact' }).eq('id', id);
+    if (error) { fail(error); return false; }
+    if (count === 0) { toast('You can only delete tasks you created.', 'error'); return false; }
+    setTasks(ts => ts.filter(x => x.id !== id));
+    return true;
+  }, [all, canDelete, fail, toast]);
+
+  const updatePosted = useCallback((id: number, day: string) => posted.has(`${id}:${day}`), [posted]);
+  const updateDue = useCallback((t: AnyTask) => {
+    const td = today();
+    return t.daily_update && !!t.daily_update_from && t.daily_update_from <= td && isWeekday(td)
+      && t.status !== 'done' && t.status !== 'review' && !posted.has(`${t.id}:${td}`);
+  }, [posted]);
+  const postUpdate = useCallback(async (taskId: number, body: string, day = today()) => {
+    const { error } = await supabase.from('task_comments').insert({ task_id: taskId, body: body.trim(), daily_for: day });
+    if (error) { fail(error); return false; }
+    setPosted(p => new Set(p).add(`${taskId}:${day}`));
+    refreshNotices();
+    return true;
+  }, [fail, refreshNotices]);
+
+  const contactOf = useCallback((id: number | null | undefined) => (id ? contacts.find(c => c.id === id) : undefined), [contacts]);
+  const saveContact = useCallback(async (c: Partial<Contact> & { name: string }) => {
+    const row = { name: c.name.trim(), organisation: c.organisation ?? '', phone: c.phone ?? '', email: c.email ?? '', note: c.note ?? '' };
+    const res = c.id
+      ? await supabase.from('task_contacts').update({ ...row, ...(c.active !== undefined ? { active: c.active } : {}) }).eq('id', c.id).select().maybeSingle()
+      : await supabase.from('task_contacts').insert({ ...row, department_id: deptId }).select().single();
+    if (res.error || !res.data) { fail(res.error ?? new Error('Only whoever added them, or a manager / senior executive, can change their details.')); return null; }
+    const saved = res.data as Contact;
+    setContacts(cs => [...cs.filter(x => x.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)));
+    return saved;
+  }, [deptId, fail]);
+  const removeContact = useCallback(async (id: number) => {
+    const used = all.some(t => t.contact_id === id);
+    if (!used) {
+      const { error, count } = await supabase.from('task_contacts').delete({ count: 'exact' }).eq('id', id);
+      if (!error && count) { setContacts(cs => cs.filter(x => x.id !== id)); return 'deleted' as const; }
+    }
+    const { data, error } = await supabase.from('task_contacts').update({ active: false }).eq('id', id).select().maybeSingle();
+    if (error || !data) { fail(error ?? new Error('Only whoever added them, or a manager / senior executive, can remove them.')); return null; }
+    setContacts(cs => cs.map(x => (x.id === id ? data as Contact : x)));
+    return 'hidden' as const;
+  }, [all, fail]);
+
+  const value: TasksStore = {
+    inDept, fullView, isLead, team, canAssignTo, tasks, undated, findTask, loaded, refresh,
+    createTask, updateTask, deleteTask, canDelete, canUndate, undateTasks,
+    helpersOf, helperOnly, helperCandidates, addHelper, removeHelper,
+    progressOf, refreshChecklist, canCheck, checkerOf, acknowledge, sendBack, inInbox, inbox, marks, setMark,
+    updatePosted, updateDue, postUpdate, contacts, contactOf, saveContact, removeContact,
+    stagesOf, stageOwner, myStages, toggleStage,
+    drawer,
+    openTask: (id) => setDrawer({ mode: 'edit', id }),
+    newTask: (defaults = {}) => setDrawer({ mode: 'new', defaults }),
+    closeDrawer: () => setDrawer(null),
+  };
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** Platform + Tasks data in one hook, for the Tasks app's pages. */
+export const useTaskApp = () => ({ ...usePlatform(), ...useTasks() });
