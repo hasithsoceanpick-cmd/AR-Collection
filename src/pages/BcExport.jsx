@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { db, rpc } from '../lib/supabase';
-import { lkr, fmtDate } from '../lib/format';
+import { lkr, fmtDate, fmtDateTime } from '../lib/format';
 import { downloadJournal, journalText } from '../lib/bcjournal';
 import { useAuth } from '../lib/auth';
 import { Renumber } from '../components/DocNumbers';
@@ -31,6 +31,97 @@ const ISSUE = {
   posted_under_old: { text: 'BC already has this posted under an earlier (reopened) number: not exported again. Match BC numbers removes the copy.', block: true },
 };
 const today = () => new Date().toISOString().slice(0, 10);
+
+// What BC's bank ledger already has for a line (the line alone, or its whole deposit slip).
+const inBcText = (h) => `Business Central already has LKR ${lkr(h.amount)} on this bank under ${h.doc_no} (${fmtDate(h.date)}): ${h.covers === 'slip'
+  ? `the deposit slip's ${h.lines} bank lines together` : 'this line'}. Probably posted outside the app: check it before exporting, or close the line with a note.`;
+
+// Finance closes the ticked lines with a note (and, if BC has them, BC's document number).
+function CloseForm({ rows, keys, preset, onCancel, onDone }) {
+  const [note, setNote] = useState(preset?.note ?? '');
+  const [doc, setDoc] = useState(preset?.doc ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const picked = rows.filter((r) => keys.has(r.key));
+  const total = picked.reduce((a, r) => a + Number(r.credit ?? r.built?.total ?? 0), 0);
+  async function save(e) {
+    e.preventDefault(); setBusy(true); setError('');
+    try { await rpc('cc_bc_attention_close', { p_keys: picked.map((r) => r.key), p_note: note, p_bc_doc_no: doc.trim() || null }); onDone(); }
+    catch (x) { setError(x.message); setBusy(false); }
+  }
+  return (
+    <form className="action attn-close" onSubmit={save}>
+      <h2>Close {picked.length} line{picked.length === 1 ? '' : 's'} with a note · LKR {lkr(total)}</h2>
+      <ul className="plain small">{picked.map((r) => <li key={r.key}>{fmtDate(r.txn_date)} · {r.account} · {r.narration} · LKR {lkr(r.credit)}</li>)}</ul>
+      <label className="field"><span className="flabel">What was done (kept with the line)</span>
+        <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Posted in BC as one entry for CC-00186; Sales confirmed the split" autoFocus /></label>
+      <label className="field"><span className="flabel">BC document no., if it is in Business Central</span>
+        <input value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="e.g. BAKRC-0002700" maxLength={30} /></label>
+      <p className="hint small">Closed lines leave Export to BC, Today and the month close. They are listed under Closed with a note, and can be reopened.</p>
+      {error && <p className="error small">{error}</p>}
+      <div className="btn-row">
+        <button className="btn primary" type="submit" disabled={busy || note.trim().length < 5 || !picked.length}>{busy ? 'Closing…' : 'Close with this note'}</button>
+        <button className="btn" type="button" onClick={onCancel} disabled={busy}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+// Lines closed with a note: why, by whom, what BC shows, and Reopen.
+function ClosedList({ list, canEdit, onChanged }) {
+  const [show, setShow] = useState(false);
+  const [reopen, setReopen] = useState(null);
+  const [why, setWhy] = useState('');
+  const [error, setError] = useState('');
+  if (!list.length) return null;
+  const ready = list.filter((c) => c.now === 'ready').length;
+  async function go(e) {
+    e.preventDefault(); setError('');
+    try { await rpc('cc_bc_attention_reopen', { p_id: reopen, p_note: why }); setReopen(null); setWhy(''); onChanged(); } catch (x) { setError(x.message); }
+  }
+  return (
+    <div className="facts attn-closed">
+      <div className="attn-head">
+        <h2>Closed with a note ({list.length})</h2>
+        <button type="button" className="link" onClick={() => setShow(!show)} aria-expanded={show}>{show ? 'hide' : 'show'}</button>
+      </div>
+      {ready > 0 && <p className="warn-text small">{ready} closed line{ready === 1 ? ' is' : 's are'} now ready to export. Reopen {ready === 1 ? 'it' : 'them'} if {ready === 1 ? 'it' : 'they'} should go to BC.</p>}
+      {show && (
+        <div className="table-wrap flat">
+          <table className="table">
+            <thead><tr><th>Bank date</th><th>Account</th><th>Bank line</th><th className="num">LKR</th><th>Note</th><th></th></tr></thead>
+            <tbody>{list.map((c) => (
+              <Fragment key={c.id}>
+                <tr>
+                  <td>{fmtDate(c.txn_date)}</td><td>{c.account}</td><td className="narr">{c.narration}</td><td className="num">{lkr(c.amount)}</td>
+                  <td className="narr">{c.note}
+                    {c.bc_doc_no && <div className="small">BC: <strong>{c.bc_doc_no}</strong>{c.bc_amount != null
+                      ? <span className="muted"> · LKR {lkr(c.bc_amount)} in BC&apos;s bank ledger{c.bc_date ? `, ${fmtDate(c.bc_date)}` : ''}</span>
+                      : <span className="warn-text"> · not in BC&apos;s bank ledger upload yet</span>}</div>}
+                    <div className="muted small">Closed by {c.closed_by ?? 'finance'}, {fmtDateTime(c.closed_at)}{(c.issues ?? []).length ? ` · was: ${c.issues.map((i) => ISSUE[i]?.text ?? i).join('; ')}` : ''}</div>
+                    {c.now === 'ready' && <div className="warn-text small">Now ready to export</div>}
+                    {c.now === 'gone' && <div className="muted small">No longer on Export to BC</div>}
+                  </td>
+                  <td>{canEdit && c.now !== 'gone' && reopen !== c.id && <button type="button" className="link small" onClick={() => { setReopen(c.id); setWhy(''); setError(''); }}>Reopen</button>}</td>
+                </tr>
+                {reopen === c.id && (
+                  <tr className="sub-row"><td></td><td colSpan={5}>
+                    <form className="attn-reopen" onSubmit={go}>
+                      <input value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why it is reopened" aria-label="Why it is reopened" autoFocus />
+                      <button className="btn small primary" type="submit" disabled={!why.trim()}>Reopen</button>
+                      <button className="link small" type="button" onClick={() => setReopen(null)}>Cancel</button>
+                      {error && <span className="error small">{error}</span>}
+                    </form>
+                  </td></tr>
+                )}
+              </Fragment>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ChequeMap({ depositId, onDone, admin }) {
   const [split, setSplit] = useState(false);
@@ -118,12 +209,17 @@ export default function BcExport() {
   const [bcNext, setBcNext] = useState('');     // Business Central's next BAKRC number, as finance types it
   const [plan, setPlan] = useState(null);
   const [planBusy, setPlanBusy] = useState(false);
+  const [closed, setClosed] = useState([]);            // lines closed with a note
+  const [closeKeys, setCloseKeys] = useState(new Set()); // lines ticked to close
+  const [closePreset, setClosePreset] = useState(null);
+  const [closing, setClosing] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [c0, m, p, st, g] = await Promise.all([rpc('cc_bc_candidates'), rpc('cc_bc_merchant_candidates'), rpc('cc_bc_payhere_candidates'),
-        rpc('cc_doc_numbers_status'), rpc('cc_bc_export_guards')]);
+      const [c0, m, p, st, g, cl] = await Promise.all([rpc('cc_bc_candidates'), rpc('cc_bc_merchant_candidates'), rpc('cc_bc_payhere_candidates'),
+        rpc('cc_doc_numbers_status'), rpc('cc_bc_export_guards'), rpc('cc_bc_attention_list').catch(() => [])]);
+      setClosed(cl ?? []); setCloseKeys(new Set()); setClosing(false); setClosePreset(null);
       // what BC already has under an earlier (reopened) number is never exported again
       const posted = (r) => (g ?? []).find((x) => (r.batch_id && x.batch_id === r.batch_id) || (r.payout_id && x.payout_id === r.payout_id)
         || (!r.batch_id && !r.payout_id && r.line_id && x.line_id === r.line_id));
@@ -133,7 +229,8 @@ export default function BcExport() {
       const next = st?.BAKRC?.next_no ? String(st.BAKRC.next_no) : '';
       setNextNo(next); setBcNext(next);
       // an exported document goes again only if BC hasn't reached its number (else BC has it, or would refuse the file)
-      setSel(new Set(c.filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices')
+      // a line BC's bank ledger already seems to have is never ticked for you
+      setSel(new Set(c.filter((r) => !(r.built.issues ?? []).some((i) => ISSUE[i]?.block) && !(r.built.issues ?? []).includes('no_invoices') && !(r.in_bc ?? []).length
         && (!isAgain(r) || numOf(r.doc_no) >= Number(next || 0))).map((r) => r.key)));
     } catch (e) { setError(e.message); setRows([]); }
   }, []);
@@ -172,6 +269,14 @@ export default function BcExport() {
   // unapplied ticks: bank lines by id, cash receipts as negative ids, merchant batches as 'B<id>', PayHere payouts as 'P<id>'
   const uid = (r) => (r.batch_id ? `B${r.batch_id}` : r.payout_id ? `P${r.payout_id}` : r.cash_id ? -r.cash_id : r.line_id);
   const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleClose = (id) => setCloseKeys((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // "Close: in BC as …": tick the line (or all of its slip's lines still on the page) and fill in BC's number
+  const closeAsInBc = (h) => {
+    const keys = new Set((h.keys ?? []).filter((k) => (rows ?? []).some((r) => r.key === k)));
+    setCloseKeys(keys); setClosePreset({ doc: h.doc_no, note: `Posted in BC as ${h.doc_no}${h.covers === 'slip' ? ` (one entry for the deposit slip's ${h.lines} bank lines)` : ''}` });
+    setClosing(true); window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const canClose = role === 'finance';
   const toggleUnapplied = (r) => {
     const id = uid(r), on = !unapplied.has(id);
     setUnapplied((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
@@ -212,7 +317,8 @@ export default function BcExport() {
   const groups = [
     { key: 'new', title: 'Ready to export', list: rows.filter((r) => (!r.doc_no || r.preassigned) && !blocked(r)) },
     { key: 'again', title: 'Exported but not in BC yet', hint: 'BC doesn\'t show these yet. They go again under BC\'s next numbers (ticked when BC hasn\'t reached their number).', list: rows.filter((r) => r.doc_no && !r.preassigned && !blocked(r)) },
-    { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => blocked(r)) },
+    { key: 'blocked', title: 'Needs attention first', list: rows.filter((r) => blocked(r)),
+      hint: canClose ? 'When a line has been dealt with (posted in BC another way, or it will never be exported), tick it and close it with a note. It moves to Closed with a note below; reopen it there if needed.' : null },
   ];
 
   return (
@@ -242,6 +348,8 @@ export default function BcExport() {
         </div>
       )}
 
+      {closing && closeKeys.size > 0 && <CloseForm rows={rows} keys={closeKeys} preset={closePreset} onCancel={() => { setClosing(false); setClosePreset(null); }}
+        onDone={async () => { await load(); reloadToday?.(); }} />}
       {rows.length === 0 ? <p className="muted">Nothing to export: every closed receipt is confirmed posted.</p> : (
         <>
           <div className="facts export-bar">
@@ -269,6 +377,10 @@ export default function BcExport() {
             <div className="facts" key={g.key}>
               <h2>{g.title} ({g.list.length})</h2>
               {g.hint && <p className="hint">{g.hint}</p>}
+              {g.key === 'blocked' && canClose && closeKeys.size > 0 && !closing && (
+                <div className="attn-bar"><span>{closeKeys.size} ticked</span>
+                  <button type="button" className="btn primary small" onClick={() => { setClosePreset(null); setClosing(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Close with a note</button>
+                  <button type="button" className="link small" onClick={() => setCloseKeys(new Set())}>Clear</button></div>)}
               <div className="table-wrap flat">
                 <table className="table">
                   <thead><tr><th></th><th>Bank date</th><th>Account</th><th>Bank line</th><th>Customer and invoices</th><th className="num">LKR</th><th>Document</th></tr></thead>
@@ -281,7 +393,9 @@ export default function BcExport() {
                       return (
                         <Fragment key={r.key}>
                           <tr className={sel.has(r.key) ? 'row-picked' : ''}>
-                            <td><input type="checkbox" checked={sel.has(r.key)} disabled={blocked(r) || role !== 'finance'} onChange={() => toggle(r.key)} aria-label="Export this line" /></td>
+                            <td>{g.key === 'blocked'
+                              ? <input type="checkbox" checked={closeKeys.has(r.key)} disabled={!canClose} onChange={() => toggleClose(r.key)} aria-label="Tick to close with a note" title="Tick to close with a note" />
+                              : <input type="checkbox" checked={sel.has(r.key)} disabled={blocked(r) || role !== 'finance'} onChange={() => toggle(r.key)} aria-label="Export this line" />}</td>
                             <td>{fmtDate(r.txn_date)}</td>
                             <td>{r.account}</td>
                             <td className="narr">{r.narration}{r.reference ? <div className="muted small">{r.reference}</div> : null}</td>
@@ -296,6 +410,8 @@ export default function BcExport() {
                                 {i === 'posted_under_old' && r.posted_as && <> ({r.posted_as}{r.doc_no ? `; ${r.doc_no} is the copy` : ''})</>}
                                 {r.payout_id && i !== 'no_invoices' && i !== 'posted_under_old' && <> · <Link to={`/payhere?payout=${r.payout_id}`}>open</Link></>}
                               </div>)}
+                              {(r.in_bc ?? []).map((h) => <div key={h.doc_no} className="warn-text small attn-inbc">{inBcText(h)}
+                                {canClose && <> <button type="button" className="link" onClick={() => closeAsInBc(h)}>Close: in BC as {h.doc_no}</button></>}</div>)}
                             </td>
                             <td className="num">{lkr(r.credit)}</td>
                             <td>{r.doc_no ? <><strong>{r.doc_no}</strong><div className="muted small">{r.preassigned ? 'given at receipt' : `exported ${r.export_count}×`}</div>
@@ -322,6 +438,7 @@ export default function BcExport() {
           ))}
         </>
       )}
+      <ClosedList list={closed} canEdit={canClose} onChanged={async () => { await load(); reloadToday?.(); }} />
       {mapDeposit && <ChequeMap depositId={mapDeposit} admin={isAdmin && role === 'finance'} onDone={() => { setMapDeposit(null); load(); }} />}
     </section>
   );
